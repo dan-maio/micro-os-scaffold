@@ -1,0 +1,17 @@
+{
+  "name": "micro-os-scaffold",
+  "version": "1.0.0",
+  "description": "Discover, configure and scaffold µOS++ III SMP port projects as a source-level (interface) integration, with build and test verification.",
+  "license": "MIT",
+  "type": "commonjs",
+  "bin": {
+    "micro-os-scaffold": "bin/scaffold.js"
+  },
+  "scripts": {
+    "discover": "node bin/scaffold.js discover",
+    "build": "node bin/scaffold.js build"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
