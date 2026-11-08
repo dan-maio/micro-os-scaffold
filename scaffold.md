@@ -60,9 +60,10 @@ new is written under the destination.
 
 The second invariant is also simple: **the kernel is copied complete**. The
 kernel is the interface that every test is written against. Its headers,
-sources, configuration and documentation stay available. The reduction is
-applied to the port, the board support, the harness and the selected tests,
-not to the kernel.
+sources, configuration and documentation stay available. Here “complete”
+means the source tree: version-control metadata and build caches are excluded
+by the copy filter. The reduction is applied to the port, the board support,
+the harness and the selected tests, not to the kernel.
 
 The result is reproducible from `scaffold.json`, build-verified, and small
 enough to hand to another developer or to archive with a bug report.
@@ -478,7 +479,8 @@ This is the ordinary reduction:
 - other platforms are removed;
 - unused harness suites and xPack libraries are removed;
 - unused QEMU device support is removed;
-- unused integration files and documentation are removed;
+- unused integration files, harness documentation and the top-level workspace
+  `docs/` are removed;
 - the port's board list is reduced to the selected board and its referenced
   board directories.
 
@@ -495,7 +497,8 @@ Lean mode goes further:
 - for Cargo, only the port crates referenced by the selected board crate are
   kept;
 - for Zig, the external MicroZig package loses its examples, design,
-  simulation and website trees;
+  simulation and website trees, and only the selected board sources plus the
+  local helpers they import are kept;
 - top-level `docs/`, `test_smpl/` and `integration/` are removed;
 - the manifest is rewritten in slim form;
 - the README is rewritten as a short test-specific page.
@@ -738,9 +741,10 @@ A Zig port is driven by `build.zig`. It contains three tables:
 | `tests` | Test name and optional special sources or flags. |
 | `board_tests` | Which test lives in which board-specific directory. |
 
-Minimal pruning rewrites those tables, removes other board sources and
-removes other test directories. The build still uses the same
-`build.zig` logic; it simply sees fewer entries.
+Minimal pruning rewrites those tables, removes other board sources (keeping
+the selected board files and every local `.zig` helper they import, directly
+or transitively) and removes other test directories. The build still uses
+the same `build.zig` logic; it simply sees fewer entries.
 
 Lean pruning additionally removes port docs, PDFs and caches, and trims the
 external `extern/microzig` package to its build-essential directories.
@@ -898,8 +902,9 @@ node /path/to/micro-os-scaffold/bin/scaffold.js \
 | `--yes` | Non-interactive; use the default selection. |
 | `--minimal` | Normal minimal layout (default). |
 | `--full` | Complete harness and all boards/tests. |
-| `--lean` | Strict test-only layout. |
+| `--lean` | Strict test-only layout. It implies `--minimal` and wins over `--full`. |
 | `--help` | Usage. |
+| `--version` | Print the tool version. |
 
 Environment variables:
 

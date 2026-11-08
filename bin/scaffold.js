@@ -44,6 +44,7 @@ Options:
   --minimal             copy only the selected tests/platforms/suites (default)
   --full                copy the complete harness and all platform/board tests
   --lean                strict test-only port: no port docs or unrelated boards
+  --version             print the tool version
   --help                show this help
 
 Environment:
@@ -61,9 +62,9 @@ function parseArgs(argv) {
     build: true,
     listOnly: false,
     yes: false,
-    force: false,
     minimal: true,
     lean: false,
+    version: false,
     help: false,
   };
   const knownSubcommands = new Set(['discover', 'list', 'build', 'scaffold']);
@@ -77,7 +78,7 @@ function parseArgs(argv) {
   for (index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--help' || arg === '-h') result.help = true;
-    else if (arg === '--version' || arg === '-V') result.help = true;
+    else if (arg === '--version' || arg === '-V') result.version = true;
     else if (arg === '--source') result.source = nextValue('--source');
     else if (arg.startsWith('--source=')) result.source = arg.slice('--source='.length);
     else if (arg === '--select') result.select = nextValue('--select');
@@ -89,7 +90,6 @@ function parseArgs(argv) {
     else if (arg === '--build') result.build = true;
     else if (arg === '--list-only') result.listOnly = true;
     else if (arg === '--yes' || arg === '-y') result.yes = true;
-    else if (arg === '--force') result.force = true;
     else if (arg === '--minimal') result.minimal = true;
     else if (arg === '--lean') result.lean = true;
     else if (arg === '--full') result.minimal = false;
@@ -410,6 +410,10 @@ async function main() {
     console.error('');
     console.error(usage());
     return 2;
+  }
+  if (options.version) {
+    console.log(`${PACKAGE.name ?? 'micro-os-scaffold'} ${PACKAGE.version ?? ''}`.trim());
+    return 0;
   }
   if (options.help) {
     console.log(usage());

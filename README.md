@@ -2,17 +2,20 @@
 
 A dependency-free Node.js application that discovers µOS++ III SMP projects in a source
 workspace, records the local toolchain in a JSON configuration file, scaffolds a reproducible
-workspace (kernel + selected architecture ports + CTest harness), and verifies it with a real
-test build.
+workspace (kernel + selected port + the selected test and its harness), and verifies it with a
+real test build.
 
-The generated workspace consumes the kernel and the ports as **source-level INTERFACE targets**
-(`add_subdirectory`), never as pre-built libraries.
+In a CMake workspace the kernel and ports are consumed as **source-level INTERFACE targets**
+(`add_subdirectory`), never as pre-built libraries. Cargo workspaces use path dependencies and
+Zig workspaces use `build.zig.zon` path dependencies.
 
 ## Requirements
 
 - Node.js 18 or newer (no npm packages are installed; everything uses the Node standard library).
-- A C/C++ toolchain, CMake, Ninja, and optionally QEMU/OpenOCD. The tool locator reports anything
-  missing instead of inventing a path.
+- For C/C++ and RISC-V: a cross C/C++ toolchain, CMake, Ninja, and optionally QEMU/OpenOCD.
+- For Rust: Cargo and Rustc.
+- For Zig: Zig.
+The tool locator reports anything missing instead of inventing a path.
 
 ## Quick start
 
@@ -70,8 +73,8 @@ scaffolded and is not a build target).
 
 The selected leaves are written to `scaffold.json` as `selectedSelections`,
 `selectedPlatforms` and `selectedTests`. One build configuration is created per selected
-board; `tests/scripts/selected-tests.txt` maps each configuration to the CTest regexes of the
-selected tests, and `tests/test.sh` runs only those tests by default.
+board. For CMake workspaces, `tests/scripts/selected-tests.txt` maps each configuration to the
+exact CTest names of the selected tests, and `tests/test.sh` runs only those tests by default.
 
 ## Commands
 
@@ -94,9 +97,10 @@ Options:
 | `--list-only` | Discover and write `scaffold.json`, copy nothing. |
 | `--minimal` | Copy only the selected tests/platforms/suites (default). |
 | `--full` | Copy the complete harness and every platform/board/test. |
-| `--lean` | Strict test-only port: full kernel, build/run files for the selected test only. |
+| `--lean` | Strict test-only layout: full kernel, build/run files for the selected test only. Implies `--minimal`; wins over `--full`. |
 | `--yes` | Non-interactive; use the default selection. |
 | `--help` | Usage. |
+| `--version` | Print the tool version. |
 
 Environment: `SCAFFOLD_SOURCE`, `SCAFFOLD_SELECT`, `SCAFFOLD_DEBUG=1` (stack traces).
 Per-tool overrides use `SCAFFOLD_<TOOL>` (for example `SCAFFOLD_CMAKE=/opt/cmake/bin/cmake`).
@@ -139,14 +143,17 @@ The same discovery/scaffolding flow handles the Rust and Zig sibling trees:
   selection id is still `architecture.board.test`.
 - **Build configs:** one per platform, named `<platform>-cargo-debug` or
   `<platform>-zig-debug`.
-- **Generated scripts:** `tests/build.sh` runs `cargo build --workspace` or
-  `zig build -Dboard=<board>`; `tests/test.sh` runs `cargo test --workspace` or
-  `zig build run -Dboard=<board> -Dtest=<app>`.
+- **Generated scripts:** for a cross Cargo board, `tests/build.sh` runs
+  `cargo build -p <board> --examples --target <target>`; for a native Cargo board it runs
+  `cargo build --workspace`. Zig runs `zig build -Dboard=<board>`. `tests/test.sh` runs the
+  board's `hw.sh <app>` for cross Cargo boards, `cargo test --workspace` for native Cargo, and
+  `zig build run -Dboard=<board> -Dtest=<app>` for Zig.
 - **Zig path dependencies:** external `build.zig.zon` paths (for example MicroZig) are
   copied under `<destination>/extern/` and the copied manifest is rewritten to the
   relative local path, so the scaffold builds without the original absolute location.
-- **Verified build:** Cargo projects run `cargo build` / `cargo test`; Zig projects run
-  `zig build`/`zig build test` with the detected `cargo`, `rustc` and `zig` paths.
+- **Verified build:** Cargo projects run `cargo build -p <board> --examples --target <target>`
+  (or `cargo test --workspace` for native); Zig projects run `zig build -Dboard=<board>` with
+  the detected `cargo`, `rustc` and `zig` paths.
 
 The generated README for a Cargo or Zig project is build-system-specific; the CMake
 extension guide applies only to the CMake projects in a mixed workspace.
@@ -170,12 +177,23 @@ extension guide applies only to the CMake projects in a mixed workspace.
 - `build.results[]` with configure/build exit codes, logs, the compilers CMake actually used,
   and any mismatch against the JSON.
 
+Lean mode writes a **slim** manifest: it keeps the selected project/platform/test, the tools
+used by that configuration and the build result, and omits the full discovery catalogue
+(`platformCatalog`, `harness`, `inputLayout`, `generatedLayout`, `missingTools`).
+
 Tool lookup order: `SCAFFOLD_<TOOL>` → `PATH` → the local xPack repository
 (`~/.local/xPacks/@xpack-dev-tools/<tool>/<version>/.content/bin`). QEMU deliberately prefers
 the xPack tree because the CTest harness resolves it there. The newest installed version wins.
 On every run the JSON is refreshed and compared with paths recorded by earlier CMake caches.
 
 ## Generated layout
+
+The tree below is the full CMake layout. Default minimal mode removes `integration/`,
+`test_smpl/` when unused, the top-level `docs/`, unused platforms/suites/xPacks and other
+boards/tests; lean mode removes port docs, the per-port `README-SCAFFOLD.md`, and the build
+outputs. Cargo and Zig
+workspaces contain the corresponding project tree and the generated `tests/` scripts instead
+of the CMake harness.
 
 ```text
 <destination>/
@@ -206,6 +224,8 @@ listed in the generated README and in `.scaffold-manifest.json`.
 ## Minimal pruning (default)
 
 For every build system the scaffolder copies only what the selected tests need.
+The top-level workspace `docs/` and the CMake `test_smpl/` runners are removed
+when they are not needed; lean mode additionally removes the build outputs.
 
 ### CMake (C/C++ and RISC-V)
 
@@ -221,8 +241,8 @@ For every build system the scaffolder copies only what the selected tests need.
   those tests, the required xPack libraries and `build-helper` are kept;
 - `device-qemu-cortexm` is kept only when a QEMU test is selected;
 - `test_smpl/`, `tests/deprecated/`, `tests/README.md`, the harness package
-  copy, the generated OpenOCD index and the integration entry point are removed
-  when not used by the selection.
+  copy, the generated OpenOCD index, the top-level workspace `docs/` and the
+  integration entry point are removed when not used by the selection.
 
 ### Cargo (Rust)
 
@@ -237,7 +257,8 @@ For every build system the scaffolder copies only what the selected tests need.
 
 - the kernel and port sources are copied integrally;
 - only the selected board sources (`boards/<board>/` or
-  `src/boards/<board>.zig`) and selected test directories are kept;
+  `src/boards/<board>.zig`), the local board helpers they import, and selected
+  test directories are kept;
 - the `boards`, `tests` and `board_tests` tables in `build.zig` are pruned;
 - external `build.zig.zon` path dependencies are still copied under `extern/`
   and the copied manifest paths are rewritten.
@@ -278,7 +299,8 @@ caches after verification so the workspace contains only source and scripts.
 ### Zig
 
 - `build.zig`, `build.zig.zon`, `src/`, `LICENSE`;
-- only the selected board source and selected test directory;
+- the selected board source and the local board helpers it imports, plus the
+  selected test directory;
 - `extern/microzig` is kept for the build, but its `.git`, examples, design,
   simulation and website trees are removed.
 
@@ -291,27 +313,35 @@ written. After verification the CMake build tree, Cargo `target/` and the Zig
 caches (`zig-out/`, `zig-pkg/`, `.zig-cache/`) are removed; run
 `tests/build.sh` before `tests/test.sh`.
 
-The kernel remains byte-for-byte complete, as requested, so the interface and
-its documentation stay available.
+The kernel sources, headers, configuration and documentation remain complete, as
+requested, so the interface stays available. Version-control metadata and build
+caches are excluded by the copy filter.
 
 ## Build verification
 
-After scaffolding, the application:
+After scaffolding, the application runs the real build for the selected build system.
+
+For CMake:
 
 1. creates `tests/build/<configuration>/`;
 2. links the xPack libraries the configuration needs into that build tree;
 3. runs `cmake -S tests -B tests/build/<configuration> -G Ninja` with the platform, build type,
    the cross toolchain file, and (for the native port) the explicit host compiler paths;
 4. runs `cmake --build ... -- -k 0`;
-5. reads `CMakeCache.txt` back to confirm CMake used the compilers recorded in `scaffold.json`;
-6. writes `build-logs/<configuration>.configure.log` and `.build.log`;
-7. records the result in `scaffold.json` and rewrites the README tables.
+5. reads `CMakeCache.txt` back to confirm CMake used the compilers recorded in `scaffold.json`.
 
-Failures are reported and produce a non-zero exit code; they are never silently ignored.
+For Cargo it runs `cargo build -p <board> --examples --target <target>` (or
+`cargo test --workspace` for native). For Zig it runs `zig build -Dboard=<board>`.
+
+In every case it writes `build-logs/<configuration>.*.log`, records the result in
+`scaffold.json` and rewrites the README tables. Failures are reported and produce a non-zero
+exit code; they are never silently ignored.
 
 ## Generated project guides
 
-Each `README-SCAFFOLD.md` documents, with the values detected in this environment:
+In normal and full modes each selected port gets a `README-SCAFFOLD.md`; lean mode omits these
+and writes a single short top-level README instead. The guide documents, with the values
+detected in this environment:
 
 - the compiler/toolchain and exact versions and paths;
 - how to add source files and headers;
@@ -339,8 +369,8 @@ The generated workspace `README.md` is itself templated:
 - `templates/test.sh` — the selection-id CTest runner;
 - `lib/extension-guide.js` — fills the port/board/platform/configuration placeholders.
 
-Every scaffold therefore contains the full extension guide and the worked SMP example out of
-the box.
+Every normal or full CMake scaffold therefore contains the full extension guide and the worked
+SMP example out of the box. Lean scaffolds carry a short test-specific README instead.
 
 ## Adding files, devices, boards and tests
 
@@ -626,33 +656,37 @@ directories and new board source files. If a file is added to an explicit
 
 ### 9. Minimal workspaces
 
-A reduced workspace (for example the Pico 2 workspace for 4.4.4 / 4.4.11 /
-4.4.12 / 4.4.22) contains only the selected board and tests. Adding a different
+A reduced workspace (for example a Pico 2 workspace for one selected board
+and test) contains only the selected board and tests. Adding a different
 board or SoC to a reduced workspace requires restoring its files from the
 source repository, or re-running the scaffolder with that selection and pruning
 again. Adding another test for the **same** board only needs the test
 directory, its `tests.cmake` hooks, and a selection entry.
 
 The generated workspace README contains a complete worked example: the
-`4.4.22` `matmul-f32-20` test (**SMP** 20×20 floating-point matrix multiply
-across both Cortex-M33 cores, UART output, verdict). It shows the source file,
-the exact `tests.cmake` hooks, core-1 launch, worker affinity, the SIO barrier,
-the selection registration, the build command and the expected hardware output.
+`matmul-f32-20` test (**SMP** 20×20 floating-point matrix multiply, UART
+output, verdict). It shows the source file, the exact `tests.cmake` hooks,
+core launch and worker affinity, the barrier, the selection registration, the
+build command and the expected hardware output. The example is illustrative:
+its test directory must exist in the source repository and be committed there
+before a clean re-scaffold can reproduce it.
 
 ## Idempotence and updates
 
 Every run rescans the workspace, refreshes the tool paths/versions, rewrites `scaffold.json`,
-and copies the selected projects over the existing destination. Files under `tests/build/` are
-not part of the source copy, so rebuilding does not delete the prepared xPack links or the build
-tree. If a project is deselected it is left on disk but is no longer listed in
+and copies the selected projects over the existing destination. Minimal and lean runs start
+each selected configuration from a clean build tree, so tests that are no longer present cannot
+leave stale objects behind. Lean mode also removes the build outputs after verification. If a
+project is deselected it is left on disk but is no longer listed in
 `selectedProjects`/`selectedPlatforms`; remove it manually if desired.
 
 ## Limitations
 
 - The scaffolder does not install tools. Missing tools are listed in `scaffold.json` and block
   the affected build with an explicit `blocked` status.
-- Rust and Zig projects are detected if present, but the current µOS++ workspace contains none;
-  their sections document only what is installed and do not claim an integration that does not
-  exist.
-- Hardware (`-hwd`) tests require the physical board and probe; the default `tests/test.sh`
-  excludes them with `-LE hwd`.
+- Rust and Zig projects are detected and scaffolded when present; the Rust and Zig trial
+  workspaces are built and verified.
+- Hardware (`-hwd`) tests require the physical board and probe. `tests/test.sh` excludes `hwd`
+  cases by default, except when the selected test has no other image: then that hardware test
+  is run so the selection is not silently ignored.
+- Lean workspaces do not contain build outputs. Run `tests/build.sh` before `tests/test.sh`.
