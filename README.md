@@ -26,6 +26,16 @@ node bin/scaffold.js discover --source /path/to/micro-os-plus-workspace
 # Scaffold into the current folder (the first positional argument defaults to '.')
 node bin/scaffold.js --source /path/to/micro-os-plus-workspace --select all
 
+# One test, lean layout (the default): complete kernel + only what the test needs
+node bin/scaffold.js /path/to/output \
+  --source /path/to/micro-os-plus-workspace \
+  --select cortexm-pico2.smp-mat-test-ram --yes
+
+# The same, from git repositories instead of a local folder
+node bin/scaffold.js /path/to/output \
+  --source https://github.com/<user>/micro-os-plus-iii.git,https://github.com/<user>/micro-os-plus-iii-cortexm.git \
+  --branch smp --select cortexm-pico2.smp-mat-test-ram --yes
+
 # Scaffold four specific boards and verify them
 node bin/scaffold.js /path/to/output \
   --source /path/to/micro-os-plus-workspace \
@@ -67,7 +77,7 @@ A selection token has up to three numeric levels:
 | `2.3.1` | Architecture 2, board/platform 3, test 1 |
 
 Platform ids and test app names also work in place of numbers, for example
-`aarch32-rpi3b` or `2.3.smp_test1`. Multiple tokens are comma separated.
+`aarch32-rpi3b`, `2.3.smp_test1` or `riscv-pico2.smp-mat-test-ram`. Multiple tokens are comma separated.
 `all` selects every board and every test of the port architectures (the kernel is always
 scaffolded and is not a build target).
 
@@ -90,19 +100,25 @@ Options:
 
 | Option | Meaning |
 | --- | --- |
-| `--source <dir>` | Source workspace (default: `scaffold.json`'s `sourceRoot`, then the current folder). |
+| `--source <dir\|urls>` | Source workspace: a folder holding the sibling repositories, or a comma separated list of git URLs cloned as siblings into `~/.cache/micro-os-scaffold` (default: the source recorded in `scaffold.json`, then the current folder). |
+| `--branch <name>` | Branch to clone when `--source` is a git URL (`url#branch` sets it per repository). |
 | `--select <list>` | `architecture[.board[.test]]` tokens, ids, or `all`. Default: previous selection, else one default board per port. |
 | `--config <name>` | Build only this configuration (repeatable). |
 | `--no-build` | Scaffold without the verification build. |
 | `--list-only` | Discover and write `scaffold.json`, copy nothing. |
-| `--minimal` | Copy only the selected tests/platforms/suites (default). |
+| `--lean` | Full kernel, plus only the build/run files of the selected test (default). |
+| `--minimal` | Keep the whole selected port; prune only the unselected boards, tests, platforms and suites. |
 | `--full` | Copy the complete harness and every platform/board/test. |
-| `--lean` | Strict test-only layout: full kernel, build/run files for the selected test only. Implies `--minimal`; wins over `--full`. |
 | `--yes` | Non-interactive; use the default selection. |
 | `--help` | Usage. |
 | `--version` | Print the tool version. |
 
-Environment: `SCAFFOLD_SOURCE`, `SCAFFOLD_SELECT`, `SCAFFOLD_DEBUG=1` (stack traces).
+The strictest layout option given wins; a re-run without one keeps the layout recorded in
+`scaffold.json`. With git sources the numeric ids depend on which repositories were cloned,
+so prefer names (`cortexm-pico2.smp-mat-test-ram`) or run `discover` with the same `--source`.
+
+Environment: `SCAFFOLD_SOURCE`, `SCAFFOLD_SELECT`, `SCAFFOLD_CACHE` (clone cache),
+`SCAFFOLD_DEBUG=1` (stack traces).
 Per-tool overrides use `SCAFFOLD_<TOOL>` (for example `SCAFFOLD_CMAKE=/opt/cmake/bin/cmake`).
 
 When stdin is a terminal the scaffolder prints the numbered tree and asks for a
@@ -188,10 +204,10 @@ On every run the JSON is refreshed and compared with paths recorded by earlier C
 
 ## Generated layout
 
-The tree below is the full CMake layout. Default minimal mode removes `integration/`,
-`test_smpl/` when unused, the top-level `docs/`, unused platforms/suites/xPacks and other
-boards/tests; lean mode removes port docs, the per-port `README-SCAFFOLD.md`, and the build
-outputs. Cargo and Zig
+The tree below is the full CMake layout (`--full`). Minimal mode removes `integration/`,
+the top-level `docs/`, unused platforms/suites/xPacks and other boards/tests; lean mode (the
+default) additionally removes port docs, unused SoC support, the per-port
+`README-SCAFFOLD.md`, and the build outputs. Cargo and Zig
 workspaces contain the corresponding project tree and the generated `tests/` scripts instead
 of the CMake harness.
 
@@ -201,31 +217,33 @@ of the CMake harness.
 ├── README.md                     top-level guide (regenerated after the build)
 ├── docs/                         BUILD-TEST-CTEST-SYSTEM.md/.pdf and other workspace docs
 ├── integration/<port>/           per-port source-level add_subdirectory glue
-├── micro-os-plus-iii-smp/        complete kernel copy
+├── micro-os-plus-iii-smp/        complete kernel copy (with test_smpl/, the shared runners)
 ├── <port>/                       complete selected port copy (original files preserved)
 │   └── README-SCAFFOLD.md        generated guide for that project
 ├── tests/                        adapted CTest harness
 │   ├── build.sh                  configure + build from scaffold.json
-│   ├── test.sh                   run only the selected CTest tests
+│   ├── test.sh                   build, then run tests by selection id or directory name
 │   ├── openocd.sh, qemu.sh       wrappers using the recorded tool paths
 │   ├── scripts/env.sh            PATH and UOS_* variables derived from scaffold.json
 │   ├── scripts/selected-tests.txt configuration-to-test mapping
 │   ├── platforms/, sources/, cmake/, device-qemu-cortexm/
 │   └── xpacks/                   build-helper, validator, chan-fatfs, libucontext
-├── test_smpl/                    shared run-host/run-qemu/run-hw runners
 └── build-logs/                   configure/build logs from the verification
 ```
 
 The original repositories are never modified. The only edits to copied files are the sibling
-path resolutions in `tests/` (the harness is now a sibling of the kernel instead of a child) and
-the QEMU root lookup, which now honours `UOS_QEMU_XPACK_ROOT` from `scaffold.json`. Both are
+path resolutions in `tests/` (the harness is now a sibling of the kernel instead of a child, so
+the kernel, its `package.json` and its `test_smpl/` runners are reached through
+`../micro-os-plus-iii-smp`) and the QEMU root lookup, which now honours `UOS_QEMU_XPACK_ROOT`
+from `scaffold.json`. `tests/scripts/env.sh` derives the workspace root from its own location,
+so a generated workspace can be moved. All are
 listed in the generated README and in `.scaffold-manifest.json`.
 
-## Minimal pruning (default)
+## Minimal pruning (`--minimal`, and the first stage of lean)
 
 For every build system the scaffolder copies only what the selected tests need.
-The top-level workspace `docs/` and the CMake `test_smpl/` runners are removed
-when they are not needed; lean mode additionally removes the build outputs.
+The top-level workspace `docs/` is not copied; lean mode additionally reduces the
+port and removes the build outputs.
 
 ### CMake (C/C++ and RISC-V)
 
@@ -240,7 +258,7 @@ when they are not needed; lean mode additionally removes the build outputs.
 - under `tests/` only the selected platforms, the harness suites referenced by
   those tests, the required xPack libraries and `build-helper` are kept;
 - `device-qemu-cortexm` is kept only when a QEMU test is selected;
-- `test_smpl/`, `tests/deprecated/`, `tests/README.md`, the harness package
+- `tests/deprecated/`, `tests/README.md`, the harness package
   copy, the generated OpenOCD index, the top-level workspace `docs/` and the
   integration entry point are removed when not used by the selection.
 
@@ -267,9 +285,9 @@ The build verification runs after pruning, so a missing dependency is caught
 immediately. Use `--full` to keep the previous complete harness and all board
 tests (useful for exploring a whole port).
 
-## Lean mode (`--lean`)
+## Lean mode (`--lean`, the default)
 
-`--lean` is the strictest layout for every build system. It keeps the kernel
+Lean is the strictest layout for every build system. It keeps the kernel
 repository complete (the test is written against its interface), reduces the
 port to the files its build and runner actually use, and removes the build
 caches after verification so the workspace contains only source and scripts.
@@ -286,6 +304,9 @@ caches after verification so the workspace contains only source and scripts.
 - the runner files the board needs (`hw.sh`, `openocd.cfg`, linker scripts,
   board `.cfg` files, and the VF2 reset scripts);
 - only the selected board's USB/QEMU support when the test uses it.
+- probe configurations, GDB scripts and reset scripts at the port root only
+  when the selected board's scripts name them (the JH7110/VisionFive 2 files
+  are not copied for a Mango Pi or Pico 2 selection).
 
 ### Cargo (Rust)
 
@@ -308,10 +329,18 @@ Lean mode drops port docs, changelogs, PDFs, PNGs, package metadata, editor
 settings, `conf_back/`, alternate SoC families and unrelated test support. The
 top-level metadata is reduced to the selected project/platform/test, the tools
 actually used by that configuration, and the build result; `README.md` becomes
-a short test-specific page. Per-port `README-SCAFFOLD.md` files are not
+a test-specific page whose last part, *Adding new functionality to this
+workspace*, explains with the real port/board/test names where a new source
+file, library or test goes and which CMake file or script integrates it. Per-port `README-SCAFFOLD.md` files are not
 written. After verification the CMake build tree, Cargo `target/` and the Zig
 caches (`zig-out/`, `zig-pkg/`, `.zig-cache/`) are removed; run
-`tests/build.sh` before `tests/test.sh`.
+`tests/test.sh` rebuilds them (it runs `tests/build.sh` first).
+
+Documentation files (`.md`, `.pdf`, images) inside the port's `test/` tree are
+removed too. When several boards are selected, the port keeps the union of the
+SoC and include directories they name. A board whose selected tests are all
+hardware-only loses its `qemu/` support; a test added later must then be listed
+in `BOARD_TEST_HWD_ONLY`.
 
 The kernel sources, headers, configuration and documentation remain complete, as
 requested, so the interface stays available. Version-control metadata and build
@@ -339,8 +368,9 @@ exit code; they are never silently ignored.
 
 ## Generated project guides
 
-In normal and full modes each selected port gets a `README-SCAFFOLD.md`; lean mode omits these
-and writes a single short top-level README instead. The guide documents, with the values
+In minimal and full modes each selected port gets a `README-SCAFFOLD.md`; lean mode omits these
+and writes a single top-level README (selection, layout, tools, build/run commands, and the
+extension guide generated by `lib/lean-guide.js` from `templates/README-LEAN-CMAKE.md`). The guide documents, with the values
 detected in this environment:
 
 - the compiler/toolchain and exact versions and paths;
@@ -369,8 +399,11 @@ The generated workspace `README.md` is itself templated:
 - `templates/test.sh` — the selection-id CTest runner;
 - `lib/extension-guide.js` — fills the port/board/platform/configuration placeholders.
 
-Every normal or full CMake scaffold therefore contains the full extension guide and the worked
-SMP example out of the box. Lean scaffolds carry a short test-specific README instead.
+Every minimal or full CMake scaffold therefore contains the full extension guide and the worked
+SMP example out of the box. Lean scaffolds carry the test-specific guide instead: it reads the
+hook names from the port's own `test/CMakeLists.txt` (they differ between ports, for example
+`board_test_libs` on Cortex-M and `board_test_libraries` on the POSIX port), so every snippet
+can be pasted as written.
 
 ## Adding files, devices, boards and tests
 
@@ -590,7 +623,7 @@ Finally add a build configuration in `tests/package.json` using the naming
    ```bash
    cd tests
    ./build.sh <configuration>
-   ./test.sh <configuration> <selection-id>
+   ./test.sh <configuration> <selection-id | test-directory-name>
    ```
 
    Examples:
@@ -689,4 +722,6 @@ project is deselected it is left on disk but is no longer listed in
 - Hardware (`-hwd`) tests require the physical board and probe. `tests/test.sh` excludes `hwd`
   cases by default, except when the selected test has no other image: then that hardware test
   is run so the selection is not silently ignored.
-- Lean workspaces do not contain build outputs. Run `tests/build.sh` before `tests/test.sh`.
+- Lean workspaces do not contain build outputs; `tests/test.sh` builds before it runs.
+- Re-running the scaffolder on a workspace removes test directories that are not selected,
+  including ones added locally. Copy new work to the source repository first.

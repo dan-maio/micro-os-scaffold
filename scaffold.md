@@ -50,9 +50,9 @@ The tool has three layout levels:
 
 | Mode | What it is for |
 | --- | --- |
-| `--minimal` (default) | Copies the kernel and port, plus only the selected board, platform, test applications, harness suites and xPack libraries. Keeps the build tree. |
+| `--lean` (default) | Strict test-only layout for CMake, Cargo and Zig. Keeps the kernel complete, keeps only build/run-essential port files, writes a slim manifest and a README with a concrete extension guide, and removes build caches after verification. |
+| `--minimal` | Copies the kernel and the whole port, plus only the selected board, platform, test applications, harness suites and xPack libraries. Keeps the build tree. |
 | `--full` | Copies the complete harness, every platform, every board and every test. Useful for exploring a port, not for focused work. |
-| `--lean` | Strict test-only layout for CMake, Cargo and Zig. Keeps the kernel complete, keeps only build/run-essential port files, writes a slim manifest and a short README, and removes build caches after verification. |
 
 The most important invariant is simple: **the source repositories are read
 only**. The tool discovers and copies; it never edits the source. Everything
@@ -499,9 +499,9 @@ Lean mode goes further:
 - for Zig, the external MicroZig package loses its examples, design,
   simulation and website trees, and only the selected board sources plus the
   local helpers they import are kept;
-- top-level `docs/`, `test_smpl/` and `integration/` are removed;
+- top-level `docs/` and `integration/` are removed (the shared `test_smpl/` runners are used from the complete kernel copy, in every mode);
 - the manifest is rewritten in slim form;
-- the README is rewritten as a short test-specific page.
+- the README is rewritten as a test-specific page that ends with the guide for adding files, libraries and tests.
 
 ## Step 11 — Verify with a real build
 
@@ -531,8 +531,8 @@ test.
 
 Lean mode removes the CMake build tree, the Cargo `target/` directory and the
 Zig caches after verification. The workspace then contains source, scripts
-and logs, but not a prebuilt binary. Run `tests/build.sh` before
-`tests/test.sh`.
+and logs, but not a prebuilt binary. `tests/test.sh` rebuilds it before
+running.
 
 ---
 
@@ -540,10 +540,17 @@ and logs, but not a prebuilt binary. Run `tests/build.sh` before
 
 ## 8.1 `tests/scripts/env.sh`
 
-This file exports the absolute tool paths from `scaffold.json` and sets up the
-library paths needed by the build. It is sourced by the other scripts. It is
-the reason a generated workspace can be moved to another shell and still use
-the same toolchain.
+This file exports the tool paths from `scaffold.json` and sets up the library
+paths needed by the build. It is sourced by the other scripts.
+
+- `SCAFFOLD_ROOT` is derived from the location of the script, and every path
+  inside the workspace is written relative to it, so the workspace can be moved
+  or copied to another folder and still build.
+- Every tool is exported as `UOS_TOOL_<NAME>="${UOS_TOOL_<NAME>:-<detected path>}"`:
+  export the variable before calling the scripts to use another tool without
+  regenerating.
+- A lean workspace lists only the tools its selection uses (compiler, CMake,
+  Ninja, and OpenOCD/QEMU when a test needs them).
 
 ## 8.2 `tests/build.sh`
 
@@ -574,19 +581,36 @@ zig build -Dboard=pico2
 
 ## 8.3 `tests/test.sh`
 
-For CMake, the script maps a selection id to exact CTest names and runs them:
+For CMake, the script first configures and builds (`build.sh`), then runs the
+CTest cases of the named tests. A test is named by its selection id or by its
+application directory name:
 
 ```bash
 cd tests
-./test.sh riscv-visionfive2-lite-cmake-gcc-debug 2.4.17
+./test.sh                                                  # the selected tests
+./test.sh riscv-visionfive2-lite-cmake-gcc-debug 2.4.17    # by selection id
+./test.sh cortexm-pico2-cmake-gcc-debug my-new-test        # by directory name
+./test.sh --list                                           # registered CTest cases
+./test.sh --all --hwd                                      # everything registered
 ```
 
-It also accepts CTest-name fragments, `--hwd` and `--regex`. The mapping lives
-in `tests/scripts/selected-tests.txt`:
+| Option | Meaning |
+| --- | --- |
+| `--hwd` | include the hardware cases (they also run when the named test has no other image) |
+| `--all` | every CTest case registered in the build tree |
+| `--list` | list the registered cases; the selected ones are marked `*` |
+| `--regex <re>` | ad-hoc CTest regular expression |
+| `--no-build` | skip the configure/build step |
+
+Naming a test by its directory is what makes a test added locally runnable
+without touching any list: its CTest case is `<platform>-<app>-<variant>`.
+The default run (no test name) uses `tests/scripts/selected-tests.txt`:
 
 ```text
-configuration<TAB>selection-id<TAB>ctest-name[,ctest-name...]
+configuration<TAB>selection-id-or-name<TAB>ctest-name[,ctest-name...]
 ```
+
+Add a line there when a new test should be part of the default run.
 
 For Cargo and Zig, the script runs the board/hardware runner or the Zig run
 command for the selected configuration:
@@ -785,7 +809,7 @@ zig build run -Dboard=pico2 -Dtest=smp-test-ko
 
 ## 10.1 What minimal mode keeps
 
-Minimal mode is the default. It keeps enough of the port to build any test on
+Minimal mode (`--minimal`; lean is the default) keeps enough of the port to build any test on
 the selected board without surprises:
 
 - the kernel complete;
@@ -894,15 +918,16 @@ node /path/to/micro-os-scaffold/bin/scaffold.js \
 
 | Option | Meaning |
 | --- | --- |
-| `--source <dir>` | Source workspace. |
+| `--source <dir\|urls>` | Source workspace: a folder holding the sibling repositories, or a comma separated list of git URLs cloned as siblings (see 11.8). |
+| `--branch <name>` | Branch to clone when `--source` is a git URL (`url#branch` sets it per repository). |
 | `--select <list>` | `architecture[.board[.test]]`, names, ids, or `all`. |
 | `--config <name>` | Build only this configuration (repeatable). |
 | `--no-build` | Scaffold without the verification build. |
 | `--list-only` | Discover and write `scaffold.json`, copy nothing. |
 | `--yes` | Non-interactive; use the default selection. |
-| `--minimal` | Normal minimal layout (default). |
+| `--lean` | Complete kernel plus only the files the selected test needs to build and run (default). |
+| `--minimal` | Keeps the whole selected port; prunes only unselected boards, tests, platforms and suites. |
 | `--full` | Complete harness and all boards/tests. |
-| `--lean` | Strict test-only layout. It implies `--minimal` and wins over `--full`. |
 | `--help` | Usage. |
 | `--version` | Print the tool version. |
 
@@ -911,8 +936,32 @@ Environment variables:
 ```text
 SCAFFOLD_SOURCE   default source workspace
 SCAFFOLD_SELECT   default selection
+SCAFFOLD_CACHE    where git sources are cloned (default ~/.cache/micro-os-scaffold)
 SCAFFOLD_DEBUG=1  print stack traces on error
 ```
+
+The strictest layout option given wins (`--lean` over `--minimal` over
+`--full`). A re-run without a layout option keeps the layout recorded in
+`scaffold.json`.
+
+## 11.8 Scaffolding from git repositories
+
+The source workspace does not have to exist locally. Give the repositories
+(the kernel and the port you need) as git URLs; they are cloned shallowly as
+siblings into a cache folder and discovered as usual:
+
+```bash
+node bin/scaffold.js /path/to/destination \
+  --source https://github.com/<user>/micro-os-plus-iii.git,https://github.com/<user>/micro-os-plus-iii-cortexm.git \
+  --branch smp \
+  --select cortexm-pico2.smp-mat-test-ram --yes
+```
+
+A single URL may also be one repository that contains every project. The
+numeric selection ids depend on which repositories are present, so with a
+partial clone prefer names (`cortexm-pico2.smp-mat-test-ram`) or run
+`discover` with the same `--source` first. A later run updates the cached
+clones; the URLs and the branch are recorded in `scaffold.json`.
 
 ## 11.6 Hardware test flow
 
@@ -1202,19 +1251,36 @@ zig build run -Dboard=pico2 -Dtest=my-test
 
 ## 12.6 Extending in a lean workspace
 
-Lean workspaces remove the build tree. After adding or changing a test:
+The `README.md` generated in a lean workspace contains a complete, concrete
+guide ("Adding new functionality to this workspace") written with the real
+names of the selected port, board, platform, configuration and test, and with
+the hooks that port's builder actually offers. It covers:
+
+- which CMake file picks up each kind of file (globbed or explicit);
+- adding a source or header to the test, a C/assembly file through
+  `board_test_sources()`, shared board-test code and board glue;
+- per-test definitions, options, linker script and CPU count;
+- adding a library: an INTERFACE target of your own sources, a pre-built
+  archive, an optional kernel component, a harness suite or xPack;
+- adding a new test directory, its CTest name, and `selected-tests.txt`;
+- what each build/run script does and when to edit it.
+
+Lean workspaces remove the build tree; `test.sh` rebuilds it:
 
 ```bash
 cd tests
-./build.sh <configuration>
-./test.sh <configuration> <selection>
+./test.sh <configuration> <test-directory-name>
 ```
+
+A board whose selected test is hardware-only is copied without its QEMU
+support; a new test must then be listed in `BOARD_TEST_HWD_ONLY`.
 
 Do not edit files in `tests/build`, `target`, `zig-out` or `zig-pkg`: they are
 generated and removed by the next lean run.
 
-If the change must survive regeneration, make it in the source repository and
-re-run the scaffolder with `--lean`.
+Re-running the scaffolder removes every test directory that is not selected,
+including the ones added locally. If the change must survive regeneration,
+copy it to the source repository first.
 
 ---
 

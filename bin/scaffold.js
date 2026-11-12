@@ -12,6 +12,7 @@ const { loadConfig, saveConfig, buildConfig } = require('../lib/config');
 const { scaffold, refreshDocs } = require('../lib/scaffold');
 const { slimConfig, leanReadme, cleanLeanOutputs } = require('../lib/lean');
 const { runVerification } = require('../lib/build');
+const { resolveSource } = require('../lib/source');
 const { parseHierarchicalSelection, isDirectory, readJson, writeFile } = require('../lib/util');
 
 const PACKAGE = readJson(path.join(__dirname, '..', 'package.json'), {});
@@ -34,16 +35,21 @@ Subcommands:
   scaffold [destination]         explicit form of the default action
 
 Options:
-  --source <dir>        source workspace (default: scaffold.json, then cwd)
+  --source <dir|urls>   source workspace: a folder holding the sibling repositories,
+                        or a comma separated list of git URLs to clone as siblings
+                        (default: scaffold.json, then cwd)
+  --branch <name>       branch to clone when --source is a git URL (or url#branch)
   --select <list>       architecture[.board[.test]] tokens, ids, or 'all'
                         (e.g. 2, 2.3, 2.3.1; default: previous, else one board per port)
   --config <name>       build only this configuration (repeatable)
   --no-build            scaffold only, do not run the verification build
   --list-only           discover and write scaffold.json, do not copy files
   --yes                 non-interactive: accept the default selection
-  --minimal             copy only the selected tests/platforms/suites (default)
+  --lean                complete kernel + only the files the selected test needs
+                        to build and run (default)
+  --minimal             keep the whole selected port (docs, all SoCs); prune only
+                        the unselected boards, tests, platforms and suites
   --full                copy the complete harness and all platform/board tests
-  --lean                strict test-only port: no port docs or unrelated boards
   --version             print the tool version
   --help                show this help
 
@@ -62,13 +68,14 @@ function parseArgs(argv) {
     build: true,
     listOnly: false,
     yes: false,
-    minimal: true,
-    lean: false,
+    branch: null,
+    mode: null,
     version: false,
     help: false,
   };
   const knownSubcommands = new Set(['discover', 'list', 'build', 'scaffold']);
   const positional = [];
+  const modes = new Set();
   let index = 0;
   const nextValue = (option) => {
     const value = argv[++index];
@@ -90,9 +97,9 @@ function parseArgs(argv) {
     else if (arg === '--build') result.build = true;
     else if (arg === '--list-only') result.listOnly = true;
     else if (arg === '--yes' || arg === '-y') result.yes = true;
-    else if (arg === '--minimal') result.minimal = true;
-    else if (arg === '--lean') result.lean = true;
-    else if (arg === '--full') result.minimal = false;
+    else if (arg === '--branch') result.branch = nextValue('--branch');
+    else if (arg.startsWith('--branch=')) result.branch = arg.slice('--branch='.length);
+    else if (arg === '--minimal' || arg === '--lean' || arg === '--full') modes.add(arg.slice(2));
     else if (arg.startsWith('-')) throw new Error(`Unknown option: ${arg}`);
     else positional.push(arg);
   }
@@ -101,6 +108,8 @@ function parseArgs(argv) {
   }
   if (positional.length && !result.destination) result.destination = positional.shift();
   if (positional.length) throw new Error(`Unexpected argument: ${positional[0]}`);
+  // The strictest requested layout wins; null means "not given on the command line".
+  result.mode = modes.has('lean') ? 'lean' : modes.has('minimal') ? 'minimal' : modes.has('full') ? 'full' : null;
   return result;
 }
 
@@ -235,8 +244,10 @@ function requiredToolKeys(discovery, selectedIds) {
 }
 
 async function commandDiscover(options) {
-  const source = path.resolve(options.source ?? process.env.SCAFFOLD_SOURCE ?? process.cwd());
-  const discovery = discover(source);
+  const { root } = resolveSource(options.source ?? process.env.SCAFFOLD_SOURCE ?? process.cwd(), {
+    branch: options.branch,
+  });
+  const discovery = discover(root);
   printDiscoverList(discovery);
   return 0;
 }
@@ -304,9 +315,20 @@ function commandBuild(options) {
 async function commandScaffold(options) {
   const destination = resolveDestination(options.destination);
   const previous = loadConfig(destination);
-  const source = path.resolve(
-    options.source ?? process.env.SCAFFOLD_SOURCE ?? previous?.sourceRoot ?? process.cwd()
+  const resolved = resolveSource(
+    options.source ??
+      process.env.SCAFFOLD_SOURCE ??
+      previous?.sourceUrl ??
+      previous?.sourceRoot ??
+      process.cwd(),
+    { branch: options.branch ?? previous?.sourceBranch ?? null }
   );
+  const source = resolved.root;
+  // Default: lean. A re-run without a mode option keeps the previous layout.
+  const previousMode =
+    previous?.mode ??
+    (previous?.lean ? 'lean' : previous?.minimal === false ? 'full' : previous?.minimal ? 'minimal' : null);
+  const mode = options.mode ?? previousMode ?? 'lean';
   if (
     !isDirectory(path.join(source, 'micro-os-plus-iii')) &&
     !isDirectory(path.join(source, 'micro-os-plus-iii-smp')) &&
@@ -337,6 +359,9 @@ async function commandScaffold(options) {
     generatorVersion: PACKAGE.version,
     cliPath: path.resolve(process.argv[1]),
   });
+  config.sourceUrl = resolved.url;
+  config.sourceBranch = resolved.branch;
+  config.mode = mode;
   saveConfig(destination, config);
   printToolSummary(config);
 
@@ -353,17 +378,20 @@ async function commandScaffold(options) {
     discovery,
     config,
     toolsInfo,
-    minimal: options.minimal,
-    lean: options.lean,
+    minimal: mode !== 'full',
+    lean: mode === 'lean',
   });
+  console.log(`  layout:        ${mode}`);
   saveConfig(destination, config.lean ? slimConfig(config) : config);
   console.log(`  kernel:        ${result.kernel}`);
   for (const project of result.projects) console.log(`  port:          ${project}`);
   console.log(`  test harness:  ${result.tests}`);
-  console.log(`  shared runners:${result.sharedRunners}`);
-  console.log(`  docs:          ${result.docs}`);
-  console.log(`  integration:   ${result.integration}`);
-  console.log(`  openocd:       ${result.openocd.root} (${result.openocd.count} board configs)`);
+  if (result.sharedRunners) console.log(`  shared runners: ${result.sharedRunners}`);
+  if (result.docs) console.log(`  docs:          ${result.docs}`);
+  if (result.integration) console.log(`  integration:   ${result.integration}`);
+  if (result.openocd.root) {
+    console.log(`  openocd:       ${result.openocd.root} (${result.openocd.count} board configs)`);
+  }
   for (const patch of result.patches) console.log(`  patched:       ${patch}`);
   for (const [key, xpack] of Object.entries(result.xpacks)) {
     console.log(`  xpack:         ${key} ${xpack.version ?? ''} -> ${xpack.destination}`);
