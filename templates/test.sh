@@ -14,6 +14,7 @@
 #   ./test.sh --all                   every test registered in the build tree
 #   ./test.sh --list                  list the registered CTest cases
 #   ./test.sh --hwd                   include the hardware (-hwd) cases
+#   ./test.sh --hwd-only              only the hardware (-hwd) cases
 #   ./test.sh --regex '<re>'          ad-hoc CTest regular expression
 #   ./test.sh --no-build              do not build first
 #
@@ -37,11 +38,12 @@ BUILD=1
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --hwd) HWD=1 ;;
+    --hwd-only) HWD=2 ;;
     --all) ALL=1 ;;
     --list) LIST=1 ;;
     --no-build) BUILD=0 ;;
     --regex) [[ $# -ge 2 ]] || { echo "--regex needs a value" >&2; exit 2; }; REGEX="$2"; shift ;;
-    -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
     -*) echo "Unknown option: $1" >&2; exit 2 ;;
     *)
       if grep -q "^    $1) PLATFORM=" "$HERE/build.sh" 2>/dev/null; then
@@ -112,9 +114,15 @@ else
   [[ ${#NAMES[@]} -gt 0 ]] || { echo "No selected tests for $CONFIG in $MAP (try --all or --list)." >&2; exit 2; }
 fi
 
-# Hardware cases run only with --hwd, unless nothing else was asked for.
+# Hardware cases run only with --hwd or --hwd-only, unless nothing else was
+# asked for.
 RUN=()
-if [[ "$HWD" == "1" ]]; then
+if [[ "$HWD" == "2" ]]; then
+  for name in "${NAMES[@]}"; do
+    [[ "$name" == *-hwd ]] && RUN+=("$name")
+  done
+  [[ ${#RUN[@]} -gt 0 ]] || { echo "No hardware (-hwd) case among: ${NAMES[*]}" >&2; exit 2; }
+elif [[ "$HWD" == "1" ]]; then
   RUN=("${NAMES[@]}")
 else
   for name in "${NAMES[@]}"; do

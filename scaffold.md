@@ -597,6 +597,7 @@ cd tests
 | Option | Meaning |
 | --- | --- |
 | `--hwd` | include the hardware cases (they also run when the named test has no other image) |
+| `--hwd-only` | run only the hardware cases of the named tests |
 | `--all` | every CTest case registered in the build tree |
 | `--list` | list the registered cases; the selected ones are marked `*` |
 | `--regex <re>` | ad-hoc CTest regular expression |

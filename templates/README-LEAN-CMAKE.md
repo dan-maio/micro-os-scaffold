@@ -170,7 +170,7 @@ cd tests
 ./test.sh                       # build, run the selected test
 ./test.sh {{CONFIG}} my-test    # build, run one test by name
 ./test.sh --list                # the registered CTest cases
-./test.sh --all{{HWD_FLAG}}               # everything that is registered
+{{HWD_ONLY_LINE}}./test.sh --all{{HWD_FLAG}}               # everything that is registered
 ```
 
 {{RUN_NOTE}}
