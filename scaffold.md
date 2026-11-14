@@ -1494,6 +1494,8 @@ on the kernel lock.
 | Raspberry Pi Pico 2, RP2350, 2 cores | `mtp-example` | 27/27, board |
 | | `mtp-smp` (SIO) | 69/69, board, 7 s |
 | ST NUCLEO-F411RE, Cortex-M4, 1 core | `mtp-example` | 24/24, board (ST-LINK/V2.1), 11 s |
+| WeAct F411CE, Cortex-M4, 1 core | `mtp-example` | 24/24, board (WCH-Link), 22 s |
+| | `mtp-spi-flash` (board-specific, 13.8) | 52/52, board, 19 s; W25Q128: polled 1406, IRQ 759, DMA 2188 KiB/s |
 
 ## 13.7 Running, and two probes on one host
 
@@ -1523,6 +1525,21 @@ kernel results with `mtp::ok` or `mtp::code (EWOULDBLOCK)`, end a QEMU image tha
 the hardware with `return mtp_board::skip ("why");`, and pin threads to core 0 when a
 check depends on one core. For data shared between cores use the kernel,
 `mtp_board::spinlock` or `mtp_board::atomic_add ()`.
+
+A test can also be written for one board's own hardware. `examples/cortexm-weactf411-mtp-spi-flash/`
+tests the WeAct F411CE's SPI NOR flash (W25Q128) through the board's drivers: JEDEC ID,
+erase/program/read and NOR rules, the same data through polled, IRQ and DMA, flatfs, and two
+threads sharing the bus under a mutex. Rules that came out of it:
+
+- touch only a scratch area the board's other tests do not use (here the top 64 KiB of the
+  part, computed from the JEDEC size);
+- a driver that falls back silently (a transport whose completion never arrives is timed out
+  and redone polled) passes a data check; give each path a rate floor and check it is still
+  the active one;
+- reproduce what the driver's own set-up does before forcing a path (`spi::probe ()` keeps
+  DMA and leaves SPI1's interrupt masked; the IRQ path needs it unmasked);
+- add the test to `tests/scripts/selected-tests.txt` to run it by default, and keep a copy in
+  the source repository: a re-scaffold removes it.
 
 ---
 
@@ -1715,8 +1732,8 @@ node /home/dan/Work/micro-os-scaffold/bin/scaffold.js \
   untracked files. A test that is only present locally will be scaffolded,
   but it will not survive a clean checkout. Commit tests that matter.
 - **µTest++ coverage.** `--micro-test-plus` was verified on the Zero 2 W
-  and Pi 4 B (AArch64), the Zero 2 W (AArch32), the Pico 2 (RP2350) and the
-  NUCLEO-F411 (Cortex-M4), on the boards. Suite 09 (speed-up) was added after the
+  and Pi 4 B (AArch64), the Zero 2 W (AArch32), the Pico 2 (RP2350), the
+  NUCLEO-F411 and the WeAct F411CE (Cortex-M4), on the boards. Suite 09 (speed-up) was added after the
   Zero 2 W, Pico 2 runs and has been run on the Pi 4 B only. The other ports' boards
   are integrated by the same rules but not yet run. Probe selection by serial
   number is a wrapper (13.7), not yet an option of the runner.
