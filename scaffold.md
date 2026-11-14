@@ -356,8 +356,7 @@ Every generated workspace contains `scaffold.json`. The file records:
 - the layout mode (`full`, `minimal` or `lean`).
 
 The generated scripts do not guess. `tests/scripts/env.sh` is generated from
-`scaffold.json`, and `tests/build.sh` and `tests/test.sh` are generated from
-the same configuration.
+`scaffold.json`, and so is the only executable, `tests/run.sh`.
 
 A full manifest contains the complete discovery catalogue. A lean manifest is
 deliberately much smaller: it keeps only the selected project, platform and
@@ -464,9 +463,8 @@ The tool writes:
 
 ```text
 tests/scripts/env.sh
-tests/build.sh
-tests/test.sh
-tests/scripts/selected-tests.txt   (CMake)
+tests/run.sh
+tests/ARCHITECTURE.md
 ```
 
 It also copies or generates the runner helpers and the CTest registration.
@@ -532,7 +530,7 @@ test.
 
 Lean mode removes the CMake build tree, the Cargo `target/` directory and the
 Zig caches after verification. The workspace then contains source, scripts
-and logs, but not a prebuilt binary. `tests/test.sh` rebuilds it before
+and logs, but not a prebuilt binary. `tests/run.sh` rebuilds it before
 running.
 
 ---
@@ -553,69 +551,65 @@ paths needed by the build. It is sourced by the other scripts.
 - A lean workspace lists only the tools its selection uses (compiler, CMake,
   Ninja, and OpenOCD/QEMU when a test needs them).
 
-## 8.2 `tests/build.sh`
+## 8.2 `tests/run.sh build`
 
-For CMake:
+For CMake, the one script configures the build with the recorded platform,
+build type, toolchain file and compiler paths, then runs Ninja:
 
 ```bash
 cd tests
-./build.sh cortexm-pico2-cmake-gcc-debug
+./run.sh build
+./run.sh build -c cortexm-pico2-cmake-gcc-debug
+./run.sh clean -c cortexm-pico2-cmake-gcc-debug
 ```
 
-The script configures the build with the recorded platform, build type,
-toolchain file and compiler paths, then runs Ninja.
-
-Useful forms:
-
-```bash
-./build.sh --list
-./build.sh --clean <config>
-./build.sh --tests <config>
-```
-
-For Cargo and Zig, the script performs the corresponding command:
+For Cargo and Zig, the generated `tests/build.sh` performs the corresponding
+command:
 
 ```bash
 cargo build -p nucleof411 --examples --target thumbv7em-none-eabihf
 zig build -Dboard=pico2
 ```
 
-## 8.3 `tests/test.sh`
+## 8.3 `tests/run.sh`
 
-For CMake, the script first configures and builds (`build.sh`), then runs the
-CTest cases of the named tests. A test is named by its selection id or by its
-application directory name:
+For CMake, one script does everything: configure and build, then run CTest.
+A test is named by its selection id, its application directory name, or its
+full CTest name:
 
 ```bash
 cd tests
-./test.sh                                                  # the selected tests
-./test.sh riscv-visionfive2-lite-cmake-gcc-debug 2.4.17    # by selection id
-./test.sh cortexm-pico2-cmake-gcc-debug my-new-test        # by directory name
-./test.sh --list                                           # registered CTest cases
-./test.sh --all --hwd                                      # everything registered
+./run.sh                                                   # build + the selected tests
+./run.sh build                                             # build only
+./run.sh -c riscv-visionfive2-lite-cmake-gcc-debug 2.4.17  # by selection id
+./run.sh -c cortexm-pico2-cmake-gcc-debug my-new-test      # by directory name
+./run.sh list                                              # registered cases (* = selected)
+./run.sh all --hwd                                         # everything registered
+./run.sh clean                                             # remove the build tree
 ```
 
 | Option | Meaning |
 | --- | --- |
+| `-c`, `--config <name>` | the build configuration (default: the first in `scaffold.json`) |
 | `--hwd` | include the hardware cases (they also run when the named test has no other image) |
-| `--hwd-only` | run only the hardware cases of the named tests |
 | `--all` | every CTest case registered in the build tree |
 | `--list` | list the registered cases; the selected ones are marked `*` |
 | `--regex <re>` | ad-hoc CTest regular expression |
 | `--no-build` | skip the configure/build step |
+| `-v` | verbose CTest output |
 
 Naming a test by its directory is what makes a test added locally runnable
 without touching any list: its CTest case is `<platform>-<app>-<variant>`.
-The default run (no test name) uses `tests/scripts/selected-tests.txt`:
+The default run (no test name) uses the names written into `run.sh` from
+`scaffold.json`, so a test is part of it when it is part of the configuration
+selection. Re-run the scaffolder to change the selection; there is no separate
+mapping file to edit.
 
-```text
-configuration<TAB>selection-id-or-name<TAB>ctest-name[,ctest-name...]
-```
+`run.sh` also writes the CTest JUnit summary (`build/<configuration>/ctest.xml`),
+next to the µTest++ TAP report of each run.
 
-Add a line there when a new test should be part of the default run.
-
-For Cargo and Zig, the script runs the board/hardware runner or the Zig run
-command for the selected configuration:
+For Cargo and Zig, the generated `build.sh`/`test.sh` remain; they are specific
+to those build systems:
 
 ```bash
 ./test.sh cortexm-nucleof411-cargo-debug
@@ -633,6 +627,22 @@ build-logs/<configuration>.build.log
 
 These logs are the first place to look when a generated workspace fails to
 build.
+
+The test runs write their own files:
+
+```text
+tests/build/<configuration>/ctest.xml             CTest JUnit summary
+tests/build/<configuration>/ctest.log             full CTest console output
+tests/build/<configuration>/platform-bin/.../     runner build directory
+  .hw-logs/<app>.tap                              complete µTest++ report (board)
+  .qemu-logs/<app>.tap                            complete µTest++ report (QEMU)
+  .host-logs/<app>.tap                            complete µTest++ report (host)
+```
+
+`ctest.xml` is what CI reads. CTest caps the console text it copies into each
+test case at 1 KiB and says so in the XML; the `.tap` file is the complete
+µTest++ report, and `ctest.log` (copied from CTest's
+`Testing/Temporary/LastTest.log`) is the full console output.
 
 ---
 
@@ -852,7 +862,7 @@ thing to do after receiving one is:
 
 ```bash
 cd tests
-./build.sh <configuration>
+./run.sh build -c <configuration>
 ```
 
 Then run the test. This is deliberate: the workspace stays small and every
@@ -976,23 +986,21 @@ The general flow is:
 
 ```bash
 cd destination/tests
-./build.sh <configuration>
-./test.sh <configuration> <selection-id>
+./run.sh -c <configuration> <selection-id>
 ```
 
-For the VisionFive 2 Lite, `test.sh` invokes the board runner, which invokes
+For the VisionFive 2 Lite, `run.sh` invokes the board runner, which invokes
 the reset script, starts OpenOCD, loads the ELF, runs it and prints the UART
 output. To skip the reset:
 
 ```bash
-UOS_SKIP_PRE_TEST=1 ./test.sh riscv-visionfive2-lite-cmake-gcc-debug 2.4.17
+UOS_SKIP_PRE_TEST=1 ./run.sh -c riscv-visionfive2-lite-cmake-gcc-debug 2.4.17
 ```
 
 ## 11.7 Native flow
 
 ```bash
-./build.sh native-cmake-sys-debug
-./test.sh native-cmake-sys-debug 5.1.1
+./run.sh -c native-cmake-sys-debug 5.1.1
 ```
 
 The native test runs as an ordinary host process and reports through its exit
@@ -1097,18 +1105,14 @@ For a manual addition to an existing `scaffold.json`, add the test to:
 - the build configuration's `tests`;
 - `selectedSelections`.
 
-Also add the exact CTest name to `tests/scripts/selected-tests.txt`:
-
-```text
-riscv-visionfive2-lite-cmake-gcc-debug	2.4.matmul-f32-20	riscv-visionfive2-lite-matmul-f32-20-hwd
-```
+`./run.sh list` shows the exact CTest name. Add the test to the configuration
+selection in `scaffold.json` to run it by default (or name it directly).
 
 **Step 5: build and run.**
 
 ```bash
 cd tests
-./build.sh riscv-visionfive2-lite-cmake-gcc-debug
-./test.sh riscv-visionfive2-lite-cmake-gcc-debug 2.4.matmul-f32-20
+./run.sh -c riscv-visionfive2-lite-cmake-gcc-debug 2.4.matmul-f32-20
 ```
 
 Expected hardware output:
@@ -1269,14 +1273,14 @@ the hooks that port's builder actually offers. It covers:
 - per-test definitions, options, linker script and CPU count;
 - adding a library: an INTERFACE target of your own sources, a pre-built
   archive, an optional kernel component, a harness suite or xPack;
-- adding a new test directory, its CTest name, and `selected-tests.txt`;
+- adding a new test directory and the CTest case it produces;
 - what each build/run script does and when to edit it.
 
-Lean workspaces remove the build tree; `test.sh` rebuilds it:
+Lean workspaces remove the build tree; `run.sh` rebuilds it:
 
 ```bash
 cd tests
-./test.sh <configuration> <test-directory-name>
+./run.sh -c <configuration> <test-directory-name>
 ```
 
 A board whose selected test is hardware-only is copied without its QEMU
@@ -1324,7 +1328,7 @@ checks, all passing on the board). Its parts are:
 | Part | Where | Role |
 | --- | --- | --- |
 | The framework | `third_party/micro-test-plus/` | µTest++ 6.0.0, unchanged: `include/`, `src/` |
-| Board support | `<port>/test/boards/rpi-zero-2w/mtp/` | `mtp_board.*` (console, RESULT line, cores), `mtp_startup.hpp` |
+| Board support | `<port>/test/mtp/` | `mtp_board.*` (runner, static suites, console, RESULT line, cores, report file), `mtp_semihosting.hpp`, `mtp_startup.hpp` |
 | CMake | `<port>/test/rpi-zero-2w/tests.cmake` | an INTERFACE library with the framework sources, the board support and the defines; one branch in `board_test_libs` links it to every `mtp-*` test |
 | Tests | `<port>/test/rpi-zero-2w/mtp-*/` | ordinary test directories: globbed, built, registered as `<platform>-mtp-<name>-qemu\|hwd` |
 
@@ -1332,23 +1336,29 @@ A µTest++ test then runs like any other:
 
 1. **Build and registration.** The port's builder globs the test directory and makes
    its images; nothing in CMake names the test.
-2. **Start-up.** The boot code clears `.bss`, hands the linker heap to the µOS++ free
-   store, runs the static constructors (the `mt::runner` is one), then calls
-   `os_main ()` on the main thread.
+2. **Start-up and arguments.** The boot code clears `.bss`, hands the linker heap to
+   the µOS++ free store, runs the static constructors (the static suites register
+   themselves), then calls `os_main (argc, argv)`. The command line comes from
+   semihosting: OpenOCD `arm semihosting_cmdline <app> ...`, QEMU
+   `-semihosting-config ...,arg=<app>,arg=...`; the host passes its process arguments.
 3. **The run.** `os_main ()` calls `mtp_board::start ()` (routes stdout), optionally
-   `release_cores ()`, then `tr.initialise ()`, `tr.add_suite (...)`, `tr.run_suites ()`,
-   and `mtp_board::finish ()`, which prints `RESULT: PASS|FAIL (...)` and signals the
-   verdict.
+   `release_cores ()`, then `mtp_board::run (argc, argv)`, which initialises the runner,
+   runs the static suites, and prints `RESULT: PASS|FAIL (...)` and signals the verdict.
+   There is no `add_suite` list: each suite file registers itself with a
+   `mt::static_suite` at namespace scope.
 4. **The report.** µTest++ prints TAP on stdout. The board support sends it to the UART
    at once and to the host through semihosting `SYS_WRITE0`, batched per suite: every
-   semihosting call halts the cores while the debugger serves it. `run-hw.sh` (OpenOCD)
-   or `run-qemu.sh` collects the text and looks for `RESULT: PASS`.
+   semihosting call halts the cores while the debugger serves it. The complete report is
+   also written to a file through semihosting (the runner passes
+   `--output-file <path>` in the debugger command line), and `run.sh` writes the CTest
+   JUnit summary. `run-hw.sh` (OpenOCD) or `run-qemu.sh` collects the console text and
+   looks for `RESULT: PASS`.
 
 Lessons from that integration, now built into the scaffolder:
 
 - the build is strict C++20, which hides `fopencookie ()` and `sbrk ()`: `_GNU_SOURCE`;
 - newlib has no `CLOCK_MONOTONIC`: no µTest++ timings;
-- µTest++ can open a report file, which pulls in `fopen ()`: a weak `_open ()` stub;
+- µTest++ opens the report file with `fopen ()`; the support wraps it (`-Wl,--wrap=fopen`) over the semihosting file calls, so no board needs `_open ()`;
 - QEMU drops semihosting `SYS_WRITE` on handle 1: the support uses `SYS_WRITE0`;
 - the build has no exceptions: tests use `expect`, never `require`;
 - µTest++ compares `const char*` as C strings: compare addresses as `std::uintptr_t`
@@ -1362,12 +1372,13 @@ Lessons from that integration, now built into the scaffolder:
 | Added | Where |
 | --- | --- |
 | The framework, unchanged | `third_party/micro-test-plus/` (from the folder, or a clone cached in `~/.cache/micro-os-scaffold/micro-test-plus/<sha>`) |
-| Board support, per port | `<port>/test/mtp/`: `mtp_board.hpp`, `mtp_board.cpp`, `mtp_startup.hpp`, `README.md` |
+| Board support, per port | `<port>/test/mtp/`: `mtp_board.hpp`, `mtp_board.cpp`, `mtp_semihosting.hpp`, `mtp_startup.hpp`, `README.md` |
 | A µTest++ block | at the end of `<port>/test/<board>/tests.cmake`, plus one `^mtp-` branch in its library hook |
 | `mtp-example` | every integrated board: "00 - Cores" (if the cores can be released), "01 - Runtime", "02 - Basics" |
+| `mtp-args` | every integrated board: "00 - Arguments", the semihosting `argc`/`argv` check (13.5) |
 | `mtp-smp` | the boards whose other cores the support can start (13.5) |
 | `mtp-eth-net` | the boards with the GENET v5 + BCM54213PE + lwIP Ethernet stack in `test/boards/<board>/net/src/` (`<platform>-eth`, `BOARD_TEST_NEED_DEVICES`) |
-| Selection | the starter tests are added to the configuration and to `tests/scripts/selected-tests.txt` |
+| Selection | the starter tests are added to the configuration, so `tests/run.sh` runs them by default |
 | Documentation | a "µTest++ tests" section in the workspace `README.md` |
 
 The block defines what the board support needs to know:
@@ -1424,6 +1435,30 @@ test calls `uart::init (board::UART_BAUD)`. The scaffolder recognises those boar
 `MTP_UART_INIT=1`, so that `mtp_board::start ()` does the same. Without it the first
 `uart::write ()` waits for TXE on a disabled USART for ever: the board boots to `main ()`
 and then prints nothing.
+
+### The command line: `mtp-args`
+
+The command line reaches the image through semihosting, and the generated runner always
+passes the test name and the report path:
+
+```text
+arm semihosting_cmdline <app> --output-file <path>       (OpenOCD)
+-semihosting-config ...,arg=<app>,arg=--output-file,arg=<path>   (QEMU)
+<app> --output-file <path>                               (host process arguments)
+```
+
+`mtp-args` is the CTest case for that transport. `main.cpp` records `argc`/`argv` as
+`os_main ()` receives them, and its one suite (`suite-args.cpp`) checks:
+
+- `argc >= 3` — the program name, `--output-file`, and its value;
+- `argv[0]` names the test (`mtp-args`);
+- `argv[1]` is `--output-file`;
+- `argv[2]` ends in `.tap`;
+- `mtp_board::argument_count()` parsed the same count.
+
+A runner that drops the command line fails this case instead of silently running the
+test with an empty `argv`. The test is a normal `mtp-*` directory with a single
+`mt::static_suite`, and is added to every µTest++ board.
 
 ## 13.5 SMP tests: `mtp-smp`
 
@@ -1491,7 +1526,7 @@ on the kernel lock.
 | Raspberry Pi Zero 2 W, AArch32, 4 cores (A53) | `mtp-example` | 27/27, board (110 ms on target) |
 | | `mtp-smp` (LDAEX/STLEX) with 09 Speed-up | 78/78, board, 55 s; **3.91x** (1 core 673 ms, 4 cores 172 ms) |
 | Raspberry Pi 4 B, AArch64, 4 cores (A72) | `mtp-example` | 27/27, board (102 ms on target) |
-| | `mtp-smp` (LDAXR/STLXR) with 09 Speed-up | 78/78, board, 38 s; **3.86x** (1 core 718 ms, 4 cores 186 ms); 3.72x under QEMU |
+| | `mtp-smp` (LDAXR/STLXR) with 09 Speed-up | 78/78, board, 38 s; **3.86x** (1 core 718 ms, 4 cores 186 ms); 3.72–3.90x under QEMU (host-dependent) |
 | | `mtp-eth-net` (GENET v5 + BCM54213PE + lwIP) | 25/25, board, 38 s (10.1 s on target; 1000 Mbit/s full duplex, DHCP lease, 4/4 56 B + 2/2 256 B ICMP replies, 0 DMA errors, `tests/MTPNET.LOG` on SD card) |
 | | `eth-net` (classic GENET v5 + lwIP, no µTest++) | PASS, board, 24 s (`tests/ETHNET.LOG` on SD card) |
 | Raspberry Pi Pico 2, RP2350, 2 cores (M33) | `mtp-example` | 27/27, board, 8 s (95 ms on target) |
@@ -1505,8 +1540,8 @@ on the kernel lock.
 
 ```bash
 cd destination/tests
-./test.sh <configuration> mtp-example mtp-smp             # QEMU (or host) images
-./test.sh <configuration> mtp-example mtp-smp --hwd-only  # on the board
+./run.sh -c <configuration> mtp-example mtp-args mtp-smp             # QEMU (or host) images
+./run.sh -c <configuration> mtp-example mtp-args mtp-smp --hwd       # on the board
 ```
 
 The Raspberry Pi boards' OpenOCD config defaults to a J-Link; with the CMSIS-DAP JTAG
@@ -1524,7 +1559,16 @@ exec /path/to/xpack-openocd/bin/openocd -c "adapter serial E46268C3571E0D36" "$@
 ## 13.8 Adding a µTest++ test
 
 Copy a starter test to `mtp-<name>` and edit it; no CMake file changes. One suite per
-source file, registered with `tr.add_suite ("NN - Name", fn)`; use `t.expect`, compare
+source file, registered by a namespace-scope `mt::static_suite`:
+
+```cpp
+mt::static_suite suite_basics{ "02 - Basics", mtp_board::runner (),
+                               [] (mt::suite& ts) { ... } };
+```
+
+The runner discovers the static suites and runs them sorted by name; `main.cpp` only
+calls `start ()`, the optional `release_cores ()`, and `run (argc, argv)`. Use
+`t.expect`, compare
 kernel results with `mtp::ok` or `mtp::code (EWOULDBLOCK)`, end a QEMU image that needs
 the hardware with `return mtp_board::skip ("why");`, and pin threads to core 0 when a
 check depends on one core. For data shared between cores use the kernel,
@@ -1542,8 +1586,8 @@ threads sharing the bus under a mutex. Rules that came out of it:
   the active one;
 - reproduce what the driver's own set-up does before forcing a path (`spi::probe ()` keeps
   DMA and leaves SPI1's interrupt masked; the IRQ path needs it unmasked);
-- add the test to `tests/scripts/selected-tests.txt` to run it by default, and keep a copy in
-  the source repository: a re-scaffold removes it.
+- add the test to the configuration selection (`scaffold.json`) to run it by default,
+  and keep a copy in the source repository: a re-scaffold removes it.
 
 The same checks can be written without µTest++. `examples/cortexm-weactf411-flash-battery/`
 splits them into five classic tests (`flash-id`, `flash-raw`, `flash-transports`,
@@ -1622,7 +1666,7 @@ documentation.
 | `CMAKE_C_COMPILER not set` | The toolchain file is missing or the compiler path is wrong. | Check `tests/scripts/env.sh` and the `tools` section of `scaffold.json`. |
 | `ninja: error: ... missing and no known rule to make it` | A board source directory or linker script was pruned. | Re-run with `--minimal`; check the selected board's `board.cmake` references. |
 | `missing compiler` during `build` | The slim manifest lost the compiler entries. | Re-scaffold (not just `build`) so tool detection runs again. |
-| CTest lists no tests | The build tree was removed (lean mode) or the test is not registered. | Run `tests/build.sh`; check `tests/scripts/selected-tests.txt`. |
+| CTest lists no tests | The build tree was removed (lean mode) or the test is not registered. | Run `tests/run.sh list`; re-run the scaffolder if the selection is wrong. |
 | Hardware test fails immediately | The board is not at the U-Boot prompt, no probe, or no UART device. | Check the probe and `/dev/ttyUSB*`; run the reset script; use `UOS_SKIP_PRE_TEST=1` only when appropriate. |
 | `vf2-reset-to-uboot: no such serial device` | The USB-UART is not connected. | Connect it or adjust `PROBE_TTY`/the reset script. |
 | Selection resolves to the wrong test | Numeric ids shifted after a new test was added. | Use the app-name token, for example `2.4.smp-mat-test`. |
@@ -1889,8 +1933,7 @@ node bin/scaffold.js build /path/to/dest
 
 # Build and run one CMake test
 cd /path/to/dest/tests
-./build.sh riscv-visionfive2-lite-cmake-gcc-debug
-./test.sh riscv-visionfive2-lite-cmake-gcc-debug 2.4.17
+./run.sh -c riscv-visionfive2-lite-cmake-gcc-debug 2.4.17
 
 # Build and run one Cargo test
 cd /path/to/dest/tests
@@ -1903,7 +1946,7 @@ cd /path/to/dest/tests
 ./test.sh cortexm-pico2-zig-debug
 
 # Skip the VisionFive 2 reset
-UOS_SKIP_PRE_TEST=1 ./test.sh riscv-visionfive2-lite-cmake-gcc-debug 2.4.17
+UOS_SKIP_PRE_TEST=1 ./run.sh -c riscv-visionfive2-lite-cmake-gcc-debug 2.4.17
 ```
 
 ---

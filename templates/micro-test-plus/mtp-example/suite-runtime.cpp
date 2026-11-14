@@ -54,7 +54,12 @@ namespace
   __attribute__ ((init_priority (300))) ordered g_late;
   __attribute__ ((init_priority (200))) ordered g_early;
 
+  // On the host the kernel replaces the C++ memory resource after the
+  // static constructors ran, so a vector allocated here could not be
+  // deallocated by the suite; the check is meaningful on the boards only.
+#if !defined(MTP_HOSTED)
   std::vector<int>* g_by_constructor = new std::vector<int> (32, 7);
+#endif
 
   bool
   in_heap ([[maybe_unused]] const void* p) noexcept
@@ -68,9 +73,9 @@ namespace
   }
 } // namespace
 
-void
-suite_runtime (mt::suite& ts)
-{
+// Registers itself with the runner of this image; see suite-basics.cpp.
+mt::static_suite suite_runtime{
+  "01 - Runtime", mtp_board::runner (), [] (mt::suite& ts) {
   ts.test (".data and .bss", [] (auto& t) {
     t.expect (mt::eq (g_data_word, 0x1234)) << ".data initialised";
     std::uint32_t any = 0;
@@ -85,11 +90,13 @@ suite_runtime (mt::suite& ts)
     t.expect (mt::eq (g_probe.value, 0xC0FFEE)) << "a global object built";
     t.expect (mt::eq (g_constructed, 2)) << "both ordered objects built";
     t.expect (mt::lt (g_early.sequence, g_late.sequence)) << "in init_priority order";
+#if !defined(MTP_HOSTED)
     t.expect (mt::ne (static_cast<void*> (g_by_constructor), nullptr))
         << "a constructor could allocate (the heap was set up before them)";
     t.expect (in_heap (g_by_constructor->data ())) << "inside the heap region";
     delete g_by_constructor;
     g_by_constructor = nullptr;
+#endif
   });
 
   ts.test ("malloc, new and calloc inside the linker's heap", [] (auto& t) {
@@ -159,4 +166,5 @@ suite_runtime (mt::suite& ts)
     t.expect (mt::eq (sbrk (0), top)) << "and a refused request moves nothing";
   });
 #endif
-}
+  }
+};

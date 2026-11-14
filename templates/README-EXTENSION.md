@@ -188,14 +188,14 @@ Create `{{PORT}}/test/<board>/` for its tests and
 
 4. Register the selection in `scaffold.json` or re-run the scaffolder with
    `--select <architecture>.<board>.<test>`. The generated
-   `tests/scripts/selected-tests.txt` maps selection ids to exact CTest names.
+   `./run.sh list` shows the exact CTest names; `./run.sh -c <configuration> <selection-id>` runs one.
 
 5. Build and run:
 
    ```bash
    cd tests
-   ./build.sh {{CONFIG}}
-   ./test.sh {{CONFIG}} <selection-id>
+   ./run.sh build -c {{CONFIG}}
+   ./run.sh -c {{CONFIG}} <selection-id>
    ```
 
 ### 6. Add a portable harness suite
@@ -217,7 +217,7 @@ Add the directory to
 
 Add the dependency to `tests/package.json` and run `xpm install`, or copy the
 resolved xPack into `tests/xpacks/`. The scaffold records detected libraries in
-`scaffold.json` under `libraries`; `tests/build.sh` links the ones a build
+`scaffold.json` under `libraries`; `tests/run.sh` links the ones a build
 needs into `tests/build/<configuration>/xpacks/`. Keep paths in
 `scaffold.json`, not hard-coded in CMake.
 
@@ -225,13 +225,13 @@ needs into `tests/build/<configuration>/xpacks/`. Keep paths in
 
 ```bash
 cd tests
-./build.sh {{CONFIG}}
-ctest --test-dir build/{{CONFIG}} -N
-./test.sh {{CONFIG}} {{EXAMPLE_SELECTION}}
-./test.sh {{CONFIG}} --hwd
+./run.sh build -c {{CONFIG}}
+./run.sh list -c {{CONFIG}}
+./run.sh -c {{CONFIG}} {{EXAMPLE_SELECTION}}
+./run.sh -c {{CONFIG}} --hwd
 ```
 
-`CONFIGURE_DEPENDS` globs mean a normal `./build.sh` notices new test
+`CONFIGURE_DEPENDS` globs mean a normal `./run.sh` notices new test
 directories and new board source files. Files added to an explicit
 `target_sources()` list still need the CMakeLists edit described above.
 

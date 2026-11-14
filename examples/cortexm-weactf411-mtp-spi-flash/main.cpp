@@ -24,16 +24,10 @@
 
 #include <cstdio>
 
-void suite_device (mt::suite& ts);
-void suite_raw (mt::suite& ts);
-void suite_transports (mt::suite& ts);
-void suite_flatfs (mt::suite& ts);
-void suite_threads (mt::suite& ts);
-
-mt::runner tr;
+// The suites live in suite-*.cpp, one per file; each registers itself.
 
 int
-os_main (int, char*[])
+os_main (int argc, char* argv[])
 {
   mtp_board::start ("mtp-spi-flash"); // also switches the UART on
 
@@ -43,11 +37,5 @@ os_main (int, char*[])
   std::printf ("# SPI1 transport chosen by spi::probe (): %s\n",
                spi::transport_name (chosen));
 
-  tr.initialise (mtp_board::options ());
-  tr.add_suite ("00 - Device", suite_device);
-  tr.add_suite ("01 - Raw flash", suite_raw);
-  tr.add_suite ("02 - Transports", suite_transports);
-  tr.add_suite ("03 - flatfs", suite_flatfs);
-  tr.add_suite ("04 - Threads", suite_threads);
-  return mtp_board::finish (tr.run_suites ());
+  return mtp_board::run (argc, argv);
 }

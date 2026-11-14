@@ -40,37 +40,16 @@
 #error "mtp-smp needs a multi-core build with the board's SMP boot helpers"
 #endif
 
-void suite_affinity (mt::suite& ts);
-void suite_critical (mt::suite& ts);
-void suite_spinlock (mt::suite& ts);
-void suite_mutex (mt::suite& ts);
-void suite_scheduler (mt::suite& ts);
-void suite_cross_core (mt::suite& ts);
-void suite_queue_stress (mt::suite& ts);
-void suite_atomics (mt::suite& ts);
-void suite_speedup (mt::suite& ts);
-
-mt::runner tr;
+// Each suite lives in its own suite-*.cpp file and registers itself; there
+// is no list here to keep in step with them.
 
 int
-os_main (int, char*[])
+os_main (int argc, char* argv[])
 {
   mtp_board::start ("mtp-smp");
   mtp_board::release_cores ();
   std::printf ("# cross-core sync method: %s\n", mtp_board::sync_method ());
-
-  tr.initialise (mtp_board::options ());
-  tr.add_suite ("00 - Cores", mtp_board::suite_cores);
-  tr.add_suite ("01 - Affinity", suite_affinity);
-  tr.add_suite ("02 - Critical sections", suite_critical);
-  tr.add_suite ("03 - Spinlocks", suite_spinlock);
-  tr.add_suite ("04 - Mutexes", suite_mutex);
-  tr.add_suite ("05 - Scheduler", suite_scheduler);
-  tr.add_suite ("06 - Cross-core sync", suite_cross_core);
-  tr.add_suite ("07 - Queue stress", suite_queue_stress);
-  tr.add_suite ("08 - Atomic read-modify-write", suite_atomics);
-  tr.add_suite ("09 - Speed-up", suite_speedup);
-  return mtp_board::finish (tr.run_suites ());
+  return mtp_board::run (argc, argv);
 }
 
 #include <mtp_startup.hpp>

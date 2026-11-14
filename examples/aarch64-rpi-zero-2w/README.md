@@ -45,24 +45,23 @@ Kept in the port:
 | `python3` | `3.14.7` | `/usr/bin/python3` |
 | `qemu-system-aarch64` | `9.2.4` | `/home/dan/.local/xPacks/@xpack-dev-tools/qemu-arm/9.2.4-1.1/.content/bin/qemu-system-aarch64` |
 
-## Build
+## Build and run
 
 ```bash
 cd tests
-./build.sh aarch64-rpi-zero-2w-cmake-gcc-debug
+./run.sh build -c aarch64-rpi-zero-2w-cmake-gcc-debug
+./run.sh -c aarch64-rpi-zero-2w-cmake-gcc-debug smp-mat-test
 ```
 
-## Run the test
+`run.sh` configures and builds first, then runs the CTest cases of the named
+test (a test directory name, a full CTest name or a selection id). Without a
+name it runs the selected tests. Hardware (`-hwd`) cases need the board and
+the probe; add `--hwd` to include them, or `--hwd-only` to run nothing but the
+hardware case.
 
-```bash
-./test.sh aarch64-rpi-zero-2w-cmake-gcc-debug smp-mat-test
-```
-
-`test.sh` configures and builds first, then runs the CTest cases of the
-named test (a test directory name or a selection id). Without a name it
-runs the selected tests. Hardware (`-hwd`) cases need the board and the
-probe; add `--hwd` to include them when a test also has another image,
-or `--hwd-only` to run nothing but the hardware case.
+The results are files: `build/<configuration>/ctest.xml` (JUnit),
+`build/<configuration>/ctest.log` (full CTest output) and the complete µTest++
+TAP report under the runner's `.hw-logs`/`.qemu-logs` directory.
 
 ## Added in this workspace: Wi-Fi tests
 
@@ -77,9 +76,9 @@ it**.
 
 ```bash
 cd tests
-UOS_CMAKE_ARGS="-DWIFI_TEST_SSID=<ssid> -DWIFI_TEST_PASS=<passphrase>" ./build.sh
-PROBE=cmsis-dap ./test.sh wifi-net --hwd-only
-PROBE=cmsis-dap ./test.sh wifi-tcp-server --hwd-only
+UOS_CMAKE_ARGS="-DWIFI_TEST_SSID=<ssid> -DWIFI_TEST_PASS=<passphrase>" ./run.sh build
+PROBE=cmsis-dap ./run.sh wifi-net --hwd-only
+PROBE=cmsis-dap ./run.sh wifi-tcp-server --hwd-only
 # while the second one waits for a client:
 ../micro-os-plus-iii-aarch64/test/rpi-zero-2w/wifi-tcp-server/wifi-tcp-host.py <address> --file <file>
 ```
@@ -105,7 +104,7 @@ On this board the probe is selected with `PROBE=cmsis-dap`.
 Everything is compiled from source: the kernel (`micro-os-plus-iii-smp/`) and the port
 (`micro-os-plus-iii-aarch64/`) export CMake INTERFACE targets, and the test executable compiles
 their sources together with its own. There is no library to rebuild or install;
-after any change run `./build.sh` (or `./test.sh`, which builds first).
+after any change run `./run.sh` (it builds first).
 
 ### Which file picks up what
 
@@ -122,7 +121,7 @@ after any change run `./build.sh` (or `./test.sh`, which builds first).
 | a library | anywhere in the workspace | an INTERFACE or STATIC target | `board_test_libs()` in `tests.cmake` |
 | a new test | `micro-os-plus-iii-aarch64/test/rpi-zero-2w/<name>/` | globbed: one executable and one CTest case per directory | only for non-default settings |
 
-The globs use `CONFIGURE_DEPENDS`, and `build.sh` re-runs CMake every time, so
+The globs use `CONFIGURE_DEPENDS`, and `./run.sh` re-runs CMake every time, so
 a new file or directory is noticed without removing the build tree.
 
 ### 1. Add a source file to the test
@@ -130,7 +129,7 @@ a new file or directory is noticed without removing the build tree.
 ```bash
 cd micro-os-plus-iii-aarch64/test/rpi-zero-2w/smp-mat-test
 $EDITOR filter.cpp filter.hpp          # #include "filter.hpp" from main.cpp
-cd ../../../../tests && ./build.sh
+cd ../../../../tests && ./run.sh build
 ```
 
 A C or assembly file is not globbed. Name it in the board's
@@ -235,7 +234,7 @@ edit.
 cp -r micro-os-plus-iii-aarch64/test/rpi-zero-2w/smp-mat-test micro-os-plus-iii-aarch64/test/rpi-zero-2w/my-test
 $EDITOR micro-os-plus-iii-aarch64/test/rpi-zero-2w/my-test/main.cpp
 cd tests
-./test.sh aarch64-rpi-zero-2w-cmake-gcc-debug my-test
+./run.sh -c aarch64-rpi-zero-2w-cmake-gcc-debug my-test
 ```
 
 - The executable is `my-test-<variant>` and the CTest case is
@@ -245,14 +244,10 @@ cd tests
 - A copied test does not inherit the settings of the original: wherever
   `tests.cmake` names `smp-mat-test` (a list, or a branch of a hook: linker script,
   sources, libraries, CPU count), add `my-test` too if it needs the same.
-- `./test.sh aarch64-rpi-zero-2w-cmake-gcc-debug --list` shows every registered case.
-- To make the new test part of the default run (`./test.sh` with no test
-  name), add one line to `tests/scripts/selected-tests.txt`; the three fields
-  are separated by tabs:
-
-  ```text
-  aarch64-rpi-zero-2w-cmake-gcc-debug	my-test	aarch64-rpi-zero-2w-my-test-qemu,aarch64-rpi-zero-2w-my-test-hwd
-  ```
+- `./run.sh list -c aarch64-rpi-zero-2w-cmake-gcc-debug` shows every registered case.
+- To make the new test part of the default run, add it to the configuration
+  selection in `scaffold.json` and re-run the scaffolder; `./run.sh list` shows
+  the exact CTest names.
 
 - A test reports its verdict by printing `RESULT: PASS` or `RESULT: FAIL`;
   that line is what the runner looks for.
@@ -277,27 +272,27 @@ interface include path.
 
 | Script | What it does | When to edit |
 | --- | --- | --- |
-| `tests/scripts/env.sh` | tool paths and `PATH`, relative to the workspace | to change a tool, or export `UOS_TOOL_<NAME>` before calling the scripts |
-| `tests/build.sh` | `cmake -S tests -B tests/build/<configuration> -G Ninja`, then the build | to pass another `-D` option to CMake (append to `CMAKE_ARGS`) |
-| `tests/test.sh` | builds, then runs CTest for the named tests | normally never |
-| `tests/scripts/selected-tests.txt` | the tests `./test.sh` runs by default | when a new test should run by default |
+| `tests/run.sh` | the one entry point: `build`, `test` (default), `list`, `all`, `clean`; `-c` selects a configuration, `--hwd` includes the board cases | never (generated) |
+| `tests/scripts/env.sh` | tool paths and `PATH`, relative to the workspace | never (generated); export `UOS_TOOL_<NAME>` to override one |
 | `tests/platforms/aarch64-rpi-zero-2w/CMakeLists.txt` | registers the CTest cases and the command that runs each | to change the run command, its arguments or the timeout |
 | `micro-os-plus-iii-aarch64/test/boards/rpi-zero-2w/hw.sh` | programs the board over OpenOCD and waits for the `RESULT:` line | to change the probe commands or the wait time |
-| `micro-os-plus-iii-aarch64/test/boards/rpi-zero-2w/qemu.sh` | runs the QEMU images outside CTest | to change the machine arguments |
 | `micro-os-plus-iii-smp/test_smpl/run-*.sh` | shared host/QEMU/hardware runners that parse the verdict and write the logs | normally never |
 
 ```bash
 cd tests
-./build.sh                      # configure and build
-./build.sh --clean              # remove the build tree
-./test.sh                       # build, run the selected test
-./test.sh aarch64-rpi-zero-2w-cmake-gcc-debug my-test    # build, run one test by name
-./test.sh --list                # the registered CTest cases
-./test.sh smp-mat-test --hwd-only   # only the hardware case of one test
-./test.sh --all --hwd               # everything that is registered
+./run.sh                            # configure, build, run the selected test
+./run.sh build                      # build only
+./run.sh clean                      # remove the build tree
+./run.sh -c aarch64-rpi-zero-2w-cmake-gcc-debug my-test   # one test by name
+./run.sh list                       # the registered CTest cases
+./run.sh smp-mat-test --hwd-only    # only the hardware case of one test
+./run.sh all --hwd                  # everything that is registered
 ```
 
-Hardware (`-hwd`) cases need the board and the probe. `./test.sh` skips them unless `--hwd` is given or the requested test has no other image. One board run is one CTest case; its log is under `tests/build/<configuration>/`.
+Hardware (`-hwd`) cases need the board and the probe. `./run.sh` skips them
+unless `--hwd` is given or the requested test has no other image. One board
+run is one CTest case; its log and its `.tap` report are under
+`tests/build/<configuration>/`.
 
 ### 7. Keep the changes
 

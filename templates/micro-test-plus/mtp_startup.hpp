@@ -13,6 +13,8 @@
 
 #if defined(MTP_CARRY_STARTUP) && MTP_CARRY_STARTUP
 
+#include "mtp_semihosting.hpp"
+
 #include <cmsis-plus/rtos/os.h>
 
 #include <exception_handler.hpp>
@@ -38,18 +40,33 @@ extern "C"
     exception::init ();
   }
 
+  // The command line the debugger/emulator passed, read before the main
+  // thread starts (SYS_GET_CMDLINE must run on the core the debugger is
+  // servicing; the boot core runs this).
+  static int mtp_argc = 1;
+  static char** mtp_argv = nullptr;
+
   [[noreturn]] static void
   mtp_main_trampoline (void)
   {
-    std::exit (os_main (0, nullptr));
+    std::exit (os_main (mtp_argc, mtp_argv));
   }
 
   extern void os_startup_create_thread_idle (void);
   extern os::rtos::thread* os_main_thread;
 
   int
-  main (int, char*[])
+  main (int argc, char* argv[])
   {
+#if defined(MTP_SEMIHOST_ARGS) && MTP_SEMIHOST_ARGS == 2
+    // AArch32/AArch64: the port's startup calls main() without arguments,
+    // so the command line comes from the debugger/emulator.
+    mtp_semihosting::args (mtp_argc, mtp_argv);
+#else
+    // Hosted: the process arguments are already here.
+    mtp_argc = argc;
+    mtp_argv = argv;
+#endif
 #if defined(OS_HAS_INTERRUPTS_STACK)
     os::rtos::interrupts::stack ()->set (
         reinterpret_cast<os::rtos::thread::stack::element_t*> (__fiq_stack_top),

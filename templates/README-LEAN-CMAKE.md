@@ -3,7 +3,7 @@
 Everything is compiled from source: the kernel (`{{KERNEL}}/`) and the port
 (`{{PORT}}/`) export CMake INTERFACE targets, and the test executable compiles
 their sources together with its own. There is no library to rebuild or install;
-after any change run `./build.sh` (or `./test.sh`, which builds first).
+after any change run `./run.sh` (it builds first).
 
 ### Which file picks up what
 
@@ -20,7 +20,7 @@ after any change run `./build.sh` (or `./test.sh`, which builds first).
 | a library | anywhere in the workspace | an INTERFACE or STATIC target | `{{LIBS_HOOK}}()` in `tests.cmake` |
 | a new test | `{{PORT}}/test/{{BOARD}}/<name>/` | globbed: one executable and one CTest case per directory | only for non-default settings |
 
-The globs use `CONFIGURE_DEPENDS`, and `build.sh` re-runs CMake every time, so
+The globs use `CONFIGURE_DEPENDS`, and `./run.sh` re-runs CMake every time, so
 a new file or directory is noticed without removing the build tree.
 
 ### 1. Add a source file to the test
@@ -28,7 +28,7 @@ a new file or directory is noticed without removing the build tree.
 ```bash
 cd {{PORT}}/test/{{BOARD}}/{{APP}}
 $EDITOR filter.cpp filter.hpp          # #include "filter.hpp" from main.cpp
-cd ../../../../tests && ./build.sh
+cd ../../../../tests && ./run.sh build
 ```
 
 A C or assembly file is not globbed. Name it in the board's
@@ -114,7 +114,7 @@ edit.
 cp -r {{PORT}}/test/{{BOARD}}/{{APP}} {{PORT}}/test/{{BOARD}}/my-test
 $EDITOR {{PORT}}/test/{{BOARD}}/my-test/main.cpp
 cd tests
-./test.sh {{CONFIG}} my-test
+./run.sh -c {{CONFIG}} my-test
 ```
 
 - The executable is `my-test-<variant>` and the CTest case is
@@ -124,14 +124,9 @@ cd tests
 - A copied test does not inherit the settings of the original: wherever
   `tests.cmake` names `{{APP}}` (a list, or a branch of a hook: linker script,
   sources, libraries, CPU count), add `my-test` too if it needs the same.
-- `./test.sh {{CONFIG}} --list` shows every registered case.
-- To make the new test part of the default run (`./test.sh` with no test
-  name), add one line to `tests/scripts/selected-tests.txt`; the three fields
-  are separated by tabs:
-
-  ```text
-  {{CONFIG}}	my-test	{{NEW_CTEST}}
-  ```
+- `./run.sh list` shows every registered case.
+- A test runs by default when it is part of the configuration selection in
+  `scaffold.json`; re-run the scaffolder to change it.
 
 - A test reports its verdict by printing `RESULT: PASS` or `RESULT: FAIL`;
   that line is what the runner looks for.
@@ -156,24 +151,30 @@ interface include path.
 
 | Script | What it does | When to edit |
 | --- | --- | --- |
-| `tests/scripts/env.sh` | tool paths and `PATH`, relative to the workspace | to change a tool, or export `UOS_TOOL_<NAME>` before calling the scripts |
-| `tests/build.sh` | `cmake -S tests -B tests/build/<configuration> -G Ninja`, then the build | to pass another `-D` option to CMake (append to `CMAKE_ARGS`) |
-| `tests/test.sh` | builds, then runs CTest for the named tests | normally never |
-| `tests/scripts/selected-tests.txt` | the tests `./test.sh` runs by default | when a new test should run by default |
+| `tests/run.sh` | the one entry point: `build`, `test` (the default), `list`, `all`, `clean`; `-c` selects a configuration, `--hwd` includes the board cases | never (generated) |
+| `tests/scripts/env.sh` | tool paths and `PATH`, relative to the workspace | never (generated); export `UOS_TOOL_<NAME>` to override one |
 | `tests/platforms/{{PLATFORM}}/CMakeLists.txt` | registers the CTest cases and the command that runs each | to change the run command, its arguments or the timeout |
 {{RUNNER_ROWS}}
 
 ```bash
 cd tests
-./build.sh                      # configure and build
-./build.sh --clean              # remove the build tree
-./test.sh                       # build, run the selected test
-./test.sh {{CONFIG}} my-test    # build, run one test by name
-./test.sh --list                # the registered CTest cases
-{{HWD_ONLY_LINE}}./test.sh --all{{HWD_FLAG}}               # everything that is registered
+./run.sh build                  # configure and build
+./run.sh clean                  # remove the build tree
+./run.sh                        # build, run the selected tests
+./run.sh -c {{CONFIG}} my-test  # build, run one test by name
+./run.sh list                   # the registered CTest cases
+{{HWD_ONLY_LINE}}./run.sh all{{HWD_FLAG}}                  # everything that is registered
 ```
 
 {{RUN_NOTE}}
+
+Each run leaves the results in files:
+
+- `tests/build/<configuration>/ctest.xml` — the CTest JUnit summary (CTest caps
+  the console snippet of each test at 1 KiB);
+- `tests/build/<configuration>/ctest.log` — the full CTest output;
+- the runner's `.hw-logs/<app>.tap`, `.qemu-logs/<app>.tap` or
+  `.host-logs/<app>.tap` — the complete µTest++ TAP report.
 
 ### 7. Keep the changes
 

@@ -24,8 +24,8 @@ and the scratch layout. Only the top 64 KiB of the part is written.
 To use it in a workspace scaffolded for `cortexm-weactf411`: copy `include/` and
 the five directories to `micro-os-plus-iii-cortexm/test/weactf411/` (the
 board's tests' `include/` is already on every test's include path), add the
-five to `tests/scripts/selected-tests.txt`, and run
-`./test.sh cortexm-weactf411-cmake-gcc-debug flash-id flash-raw flash-transports flash-flatfs flash-threads --hwd-only`.
+five to the configuration selection in `scaffold.json`, and run
+`./run.sh -c cortexm-weactf411-cmake-gcc-debug flash-id flash-raw flash-transports flash-flatfs flash-threads --hwd-only`.
 A re-scaffold removes them: keep them here or in the source repository.
 
 Result on the board (2026-11-14, W25Q128 `ef 40 18`, WCH-Link): 5/5 passed,

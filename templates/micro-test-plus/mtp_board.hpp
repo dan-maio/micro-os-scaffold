@@ -13,6 +13,26 @@
 //      here sends to the UART and through semihosting the same way;
 //   3  hosted (POSIX native): stdout is the host's, read by run-host.sh.
 //
+// The runner lives here, so the suites can register themselves statically:
+//
+//   mt::static_suite suite_basics{ "02 - Basics", mtp_board::runner (),
+//                                  [] (mt::suite& ts) { ... } };
+//
+// runner() is a function-local static, constructed by the first suite that
+// asks for it; static_suite allows that (it only stores the reference).
+// There is no list of suites in main.cpp: adding a file that defines a
+// static suite is enough for run_suites() to run it.
+//
+// main() receives its arguments from the debugger/emulator command line
+// (OpenOCD "arm semihosting_cmdline", QEMU "-semihosting-config ...,arg="),
+// so a CTest case can ask for a report file:
+//
+//   mtp_board::run ("mtp-example", argc, argv);
+//
+// and the runner writes the complete TAP report to --output-file <path>.
+// The report goes through semihosting file calls (mtp_semihosting), never
+// through newlib's _open(), which the boards usually do not provide.
+//
 // finish() prints the RESULT line the runners look for and ends the run.
 #pragma once
 
@@ -27,11 +47,33 @@ namespace mt = micro_os_plus::micro_test_plus;
 
 namespace mtp_board
 {
+  /// The one runner of this image. A function-local static, so a static
+  /// suite may ask for it before main() is reached; the first caller
+  /// constructs it.
+  [[nodiscard]] mt::runner& runner () noexcept;
+
   /// Install the console described above and print a banner. Call first.
   void start (const char* test_name) noexcept;
 
-  /// µTest++ options for a run without a command line: TAP, normal verbosity.
-  [[nodiscard]] mt::runner_options options () noexcept;
+  /// µTest++ options parsed from the command line the debugger passed
+  /// (`--output-file <path>`, `--verbose`, `--filter=<re>`, ...). The reporter stays
+  /// TAP, which is the one whose file is a valid TAP document.
+  [[nodiscard]] mt::runner_options options (int argc, char* argv[]) noexcept;
+
+  /// initialise (argc, argv) + run_suites () + finish (): the whole run,
+  /// with nothing to list and nothing to forget. Returns the exit code.
+  int run (int argc, char* argv[]) noexcept;
+
+  /// Initialise the runner with the parsed command line. Exposed for the
+  /// few tests that must do something between the initialisation and the
+  /// suite run (mtp-eth-net starts its SD writer first).
+  void initialise (int argc, char* argv[]) noexcept;
+
+  /// The raw command line the image received (from semihosting on the
+  /// boards, from the process on the host), for the tests that check the
+  /// transport itself (mtp-args).
+  [[nodiscard]] int argument_count () noexcept;
+  [[nodiscard]] const char* argument (int index) noexcept;
 
   /// Print "RESULT: PASS|FAIL (...)" for `exit_code` (from run_suites ()),
   /// send everything to the host, end the run. Returns `exit_code`.

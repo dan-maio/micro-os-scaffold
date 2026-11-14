@@ -173,11 +173,9 @@ endif ()
 
 ### Step 3 — register the selection
 
-Add the exact CTest name to `tests/scripts/selected-tests.txt`:
-
-```text
-{{CONFIG}}	{{EXAMPLE_SELECTION}}	{{EXAMPLE_CTEST}}
-```
+The test is picked up by the globs; `./run.sh list` shows its CTest name
+(`{{EXAMPLE_CTEST}}`). Add it to the configuration selection in `scaffold.json`
+(`build.configurations[].tests`) to run it by default.
 
 In a full scaffold, add the same id to `scaffold.json` (`selectedSelections`,
 `selectedTests`, the platform `tests` array and the build configuration
@@ -188,7 +186,7 @@ In a full scaffold, add the same id to `scaffold.json` (`selectedSelections`,
 
 ```bash
 cd tests
-./build.sh {{CONFIG}}
+./run.sh build {{CONFIG}}
 ```
 
 The build discovers the new directory and produces:
@@ -200,7 +198,7 @@ tests/build/{{CONFIG}}/platform-bin/port-tests/test/{{EXAMPLE_APP}}-hwd.elf
 ### Step 5 — run on hardware
 
 ```bash
-./test.sh {{CONFIG}} {{EXAMPLE_SELECTION}}
+./run.sh {{CONFIG}} {{EXAMPLE_SELECTION}}
 ```
 
 The test is flash-resident: OpenOCD programs it, starts both cores, and the

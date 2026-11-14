@@ -50,6 +50,32 @@ node bin/scaffold.js /path/to/output \
 The first positional argument is the destination folder, as specified. If it is omitted, the
 current folder is used.
 
+## What a generated workspace gives you
+
+Four things are the same for every CMake workspace, in every mode:
+
+- **One entry point.** `tests/run.sh` configures, builds, runs, lists and cleans.
+  `build.sh`, `test.sh`, `openocd.sh`, `qemu.sh` and `selected-tests.txt` are gone;
+  `tests/scripts/env.sh` remains as the generated tool-path file.
+- **A real command line on the target.** os_main() receives argc/argv from
+  semihosting: OpenOCD passes `arm semihosting_cmdline <app> ...`, QEMU passes
+  `-semihosting-config ...,arg=<app>,arg=...`; the host uses the process
+  arguments. A µTest++ test can therefore be configured per CTest case.
+  The `mtp-args` CTest case asserts that this transport really works
+  (`argc >= 3`, `argv[0]` names the test, `argv[1]` is `--output-file`, and
+  `argv[2]` ends in `.tap`).
+- **Results in files.** Every µTest++ test writes its complete TAP report to a
+  file through semihosting (`--output-file <path>`, wired by the runner into
+  `.hw-logs/<app>.tap`, `.qemu-logs/<app>.tap` or `.host-logs/<app>.tap`,
+  next to the runner's own log), and `tests/run.sh` writes the CTest JUnit
+  summary to `build/<configuration>/ctest.xml` and the full CTest output to
+  `build/<configuration>/ctest.log`. CTest itself caps each console snippet in
+  the JUnit file at 1 KiB; the `.tap` file is the complete report.
+- **Self-registering suites.** A µTest++ suite is a namespace-scope
+  `mt::static_suite` in its own source file; the runner discovers it through the
+  C++ static constructors. There is no list of suites in `main.cpp` to keep in
+  step with the files.
+
 ## Selection model: architecture.board.test
 
 The numbered list is hierarchical:
@@ -83,8 +109,8 @@ scaffolded and is not a build target).
 
 The selected leaves are written to `scaffold.json` as `selectedSelections`,
 `selectedPlatforms` and `selectedTests`. One build configuration is created per selected
-board. For CMake workspaces, `tests/scripts/selected-tests.txt` maps each configuration to the
-exact CTest names of the selected tests, and `tests/test.sh` runs only those tests by default.
+board. For CMake workspaces, `tests/run.sh` embeds the exact CTest names of each
+configuration and runs only those tests by default.
 
 ## Commands
 
@@ -225,23 +251,25 @@ of the CMake harness.
 ├── <port>/                       complete selected port copy (original files preserved)
 │   └── README-SCAFFOLD.md        generated guide for that project
 ├── tests/                        adapted CTest harness
-│   ├── build.sh                  configure + build from scaffold.json
-│   ├── test.sh                   build, then run tests by selection id or directory name
-│   ├── openocd.sh, qemu.sh       wrappers using the recorded tool paths
+│   ├── run.sh                    the one entry point: build, test, list, clean
+│   ├── ARCHITECTURE.md           general guide to the harness folders and flow
 │   ├── scripts/env.sh            PATH and UOS_* variables derived from scaffold.json
-│   ├── scripts/selected-tests.txt configuration-to-test mapping
+│   ├── build/<config>/ctest.xml  CTest JUnit summary (1 KiB snippet per test)
+│   ├── build/<config>/ctest.log  full CTest output
 │   ├── platforms/, sources/, cmake/, device-qemu-cortexm/
 │   └── xpacks/                   build-helper, validator, chan-fatfs, libucontext
 └── build-logs/                   configure/build logs from the verification
 ```
 
-The original repositories are never modified. The only edits to copied files are the sibling
+The original repositories are never modified. The edits to copied files are the sibling
 path resolutions in `tests/` (the harness is now a sibling of the kernel instead of a child, so
 the kernel, its `package.json` and its `test_smpl/` runners are reached through
-`../micro-os-plus-iii-smp`) and the QEMU root lookup, which now honours `UOS_QEMU_XPACK_ROOT`
-from `scaffold.json`. `tests/scripts/env.sh` derives the workspace root from its own location,
-so a generated workspace can be moved. All are
-listed in the generated README and in `.scaffold-manifest.json`.
+`../micro-os-plus-iii-smp`), the QEMU root lookup, which now honours `UOS_QEMU_XPACK_ROOT`
+from `scaffold.json`, and — with `--micro-test-plus` — the runner patches that pass the
+debugger command line and the report path (the board `hw.sh` and the shared
+`run-hw.sh`/`run-qemu.sh`/`run-host.sh` get one marked block each). `tests/scripts/env.sh`
+derives the workspace root from its own location, so a generated workspace can be moved.
+All are listed in the generated README and in `.scaffold-manifest.json`.
 
 ## Minimal pruning (`--minimal`, and the first stage of lean)
 
@@ -338,7 +366,7 @@ workspace*, explains with the real port/board/test names where a new source
 file, library or test goes and which CMake file or script integrates it. Per-port `README-SCAFFOLD.md` files are not
 written. After verification the CMake build tree, Cargo `target/` and the Zig
 caches (`zig-out/`, `zig-pkg/`, `.zig-cache/`) are removed; run
-`tests/test.sh` rebuilds them (it runs `tests/build.sh` first).
+`tests/run.sh` rebuilds them.
 
 Documentation files (`.md`, `.pdf`, images) inside the port's `test/` tree are
 removed too. When several boards are selected, the port keeps the union of the
@@ -400,7 +428,7 @@ The generated workspace `README.md` is itself templated:
 - `templates/README-EXTENSION.md` — where to add files, devices, boards, SoCs, tests and
   dependencies, and which CMake targets/hooks to edit;
 - `templates/README-WORKED-EXAMPLE.md` — the complete SMP 20×20 matrix multiply example;
-- `templates/test.sh` — the selection-id CTest runner;
+- `templates/run.sh` — the single build/test entry point;
 - `lib/extension-guide.js` — fills the port/board/platform/configuration placeholders.
 
 Every minimal or full CMake scaffold therefore contains the full extension guide and the worked
@@ -620,21 +648,21 @@ Finally add a build configuration in `tests/package.json` using the naming
 
 4. Register the selection in `scaffold.json` (or re-run the scaffolder with
    `--select <architecture>.<board>.<test>`). The generated
-   `tests/scripts/selected-tests.txt` maps selection IDs to exact CTest names.
+   `./run.sh list` shows the exact CTest names; `./run.sh <selection-id>` runs one.
 
 5. Build and run:
 
    ```bash
    cd tests
-   ./build.sh <configuration>
-   ./test.sh <configuration> <selection-id | test-directory-name>
+   ./run.sh build -c <configuration>
+   ./run.sh -c <configuration> <selection-id | test-directory-name>
    ```
 
    Examples:
 
    ```bash
-   ./test.sh cortexm-pico2-cmake-gcc-debug 2.3.1
-   ./test.sh cortexm-pico2-cmake-gcc-debug 4.4.11 4.4.12
+   ./run.sh -c cortexm-pico2-cmake-gcc-debug 2.3.1
+   ./run.sh -c cortexm-pico2-cmake-gcc-debug 4.4.11 4.4.12
    ```
 
 ### 6. Add a portable harness suite
@@ -662,7 +690,7 @@ tests/sources/<suite>/
 - Add the dependency to `tests/package.json` and run `xpm install` in the
   original harness, or copy the resolved xPack into `tests/xpacks/`.
 - The scaffold records detected libraries in `scaffold.json` under
-  `libraries`, and `tests/build.sh` links the ones a build needs into
+  `libraries`, and `tests/run.sh` links the ones a build needs into
   `tests/build/<configuration>/xpacks/`.
 - Keep the path in `scaffold.json`; do not hard-code it in CMake.
 
@@ -672,22 +700,22 @@ tests/sources/<suite>/
 cd tests
 
 # Reconfigure + build (CMake re-runs every time)
-./build.sh cortexm-pico2-cmake-gcc-debug
+./run.sh build -c cortexm-pico2-cmake-gcc-debug
 
-# List all registered cases
-ctest --test-dir build/cortexm-pico2-cmake-gcc-debug -N
+# List all registered cases (`*` = run by default)
+./run.sh list -c cortexm-pico2-cmake-gcc-debug
 
 # Run a selected case by selection id (no regex on the command line)
-./test.sh cortexm-pico2-cmake-gcc-debug 4.4.4
+./run.sh -c cortexm-pico2-cmake-gcc-debug 4.4.4
 
 # Run all selected tests, including hardware
-./test.sh cortexm-pico2-cmake-gcc-debug --hwd
+./run.sh -c cortexm-pico2-cmake-gcc-debug --hwd
 
 # Advanced: ad-hoc CTest regex
-./test.sh cortexm-pico2-cmake-gcc-debug --regex 'exc-test'
+./run.sh -c cortexm-pico2-cmake-gcc-debug --regex 'exc-test'
 ```
 
-`CONFIGURE_DEPENDS` globs mean a normal `./build.sh` notices new test
+`CONFIGURE_DEPENDS` globs mean a normal `./run.sh` notices new test
 directories and new board source files. If a file is added to an explicit
 `target_sources()` list, edit the CMakeLists as described above.
 
@@ -717,18 +745,51 @@ A µTest++ test is an ordinary test directory named `mtp-<name>`: the harness bu
 and registers it like any other; inside, a µTest++ runner checks with `t.expect`
 and reports in TAP, ending with the `RESULT:` line the runners read.
 
+A test is a `main.cpp` with three lines and one file per suite:
+
+```cpp
+// main.cpp
+int os_main (int argc, char* argv[])
+{
+  mtp_board::start ("mtp-example");
+#if defined(MTP_HAS_SMP_BOOT) && MTP_HAS_SMP_BOOT
+  mtp_board::release_cores ();
+#endif
+  return mtp_board::run (argc, argv);
+}
+#include <mtp_startup.hpp>
+
+// suite-basics.cpp
+mt::static_suite suite_basics{
+  "02 - Basics", mtp_board::runner (), [] (mt::suite& ts) {
+    ts.test ("comparisons", [] (auto& t) { t.expect (mt::eq (6 * 7, 42)); });
+  }
+};
+```
+
+The suite registers itself; `run_suites()` discovers it and runs the static suites
+sorted by name. Adding a file is adding a suite, and nothing else changes.
+
+The generated runners pass the case name and the report path on the target's command
+line. On a probe this is `arm semihosting_cmdline <app> --output-file <path>`; under
+QEMU it is `-semihosting-config enable=on,target=native,arg=<app>,arg=--output-file,arg=<path>`.
+On the host the same two arguments are the process arguments. The complete TAP report
+is written through semihosting, without any board needing `_open()`/`_write()`:
+`-Wl,--wrap=fopen` sends the reporter's `fopen()` to `mtp_semihosting::open()`.
+
 ```bash
 node bin/scaffold.js ../ws-pico2 --select cortexm-pico2.smp-mat-test \
   --micro-test-plus https://github.com/micro-os-plus/micro-test-plus-xpack.git \
   --micro-test-plus-ref v6.0.0 --yes
-cd ../ws-pico2/tests && ./test.sh cortexm-pico2-cmake-gcc-debug mtp-example mtp-smp --hwd-only
+cd ../ws-pico2/tests && ./run.sh -c cortexm-pico2-cmake-gcc-debug mtp-example mtp-args mtp-smp --hwd
 ```
 
 What it adds: the framework in `third_party/micro-test-plus/` (unchanged), the board
-support in `<port>/test/mtp/`, a µTest++ block in each board's `tests.cmake` that links
-it to every `mtp-*` test, the starter test `mtp-example`, on boards whose other cores it
-can start, `mtp-smp`, and on boards with the GENET v5 + lwIP Ethernet stack (`test/boards/<board>/net/src/`),
-`mtp-eth-net`.
+support in `<port>/test/mtp/` (`mtp_board.*`, `mtp_semihosting.hpp`, `mtp_startup.hpp`), a µTest++ block in each board's `tests.cmake` that links
+it to every `mtp-*` test, the starter tests `mtp-example` and `mtp-args` (the
+semihosting `argc`/`argv` check), on boards whose other cores it can start,
+`mtp-smp`, and on boards with the GENET v5 + lwIP Ethernet stack
+(`test/boards/<board>/net/src/`), `mtp-eth-net`.
 
 - **The runtime rule.** A board gets µTest++ only if its boot runs the static
   constructors, its linker script keeps `.init_array` and defines
@@ -777,10 +838,10 @@ project is deselected it is left on disk but is no longer listed in
   the affected build with an explicit `blocked` status.
 - Rust and Zig projects are detected and scaffolded when present; the Rust and Zig trial
   workspaces are built and verified.
-- Hardware (`-hwd`) tests require the physical board and probe. `tests/test.sh` excludes `hwd`
+- Hardware (`-hwd`) tests require the physical board and probe. `tests/run.sh` excludes `hwd`
   cases by default, except when the selected test has no other image: then that hardware test
   is run so the selection is not silently ignored.
-- Lean workspaces do not contain build outputs; `tests/test.sh` builds before it runs.
+- Lean workspaces do not contain build outputs; `tests/run.sh` builds before it runs.
 - Re-running the scaffolder on a workspace removes test directories that are not selected,
   including ones added locally. Copy new work to the source repository first.
 - µTest++ was run on the Zero 2 W (AArch64 and AArch32), the Pi 4 B, the Pico 2, the

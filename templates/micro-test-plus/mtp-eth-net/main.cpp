@@ -22,15 +22,11 @@
 #include "eth_app.hpp"
 #include <uart.hpp>
 
-void suite_controller (mt::suite& ts);
-void suite_link_dhcp (mt::suite& ts);
-void suite_icmp_counters (mt::suite& ts);
-void suite_sd_log (mt::suite& ts);
-
-mt::runner tr;
+// Each suite lives in its own suite-*.cpp file and registers itself; there
+// is no list here to keep in step with them.
 
 int
-os_main (int, char*[])
+os_main (int argc, char* argv[])
 {
   mtp_board::start ("mtp-eth-net");
 #if !defined(HW_BUILD)
@@ -46,15 +42,7 @@ os_main (int, char*[])
   // while the RGMII link auto-negotiates.
   rpi4b::eth_app::saver_start ();
 
-  tr.initialise (mtp_board::options ());
-#if defined(MTP_HAS_SMP_BOOT) && MTP_HAS_SMP_BOOT
-  tr.add_suite ("00 - Cores", mtp_board::suite_cores);
-#endif
-  tr.add_suite ("01 - Controller & PHY", suite_controller);
-  tr.add_suite ("02 - Link & DHCP", suite_link_dhcp);
-  tr.add_suite ("03 - ICMP & Counters", suite_icmp_counters);
-  tr.add_suite ("04 - SD Card Log", suite_sd_log);
-  return mtp_board::finish (tr.run_suites ());
+  return mtp_board::run (argc, argv);
 #endif
 }
 

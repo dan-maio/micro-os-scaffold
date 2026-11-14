@@ -6,11 +6,14 @@ W25Q128, 16 MiB, on SPI1) through the board's own drivers in
 `micro-os-plus-iii-cortexm/test/boards/weactf411/src/` (`spi.cpp`, `flash.cpp`,
 `flatfs.cpp`).
 
-To use it, copy `main.cpp` and `suites.cpp` to
+To use it, copy `main.cpp`, `flash_helpers.hpp` and the `suite-*.cpp` files to
 `micro-os-plus-iii-cortexm/test/weactf411/mtp-spi-flash/` in the workspace and run
-`./test.sh cortexm-weactf411-cmake-gcc-debug mtp-spi-flash --hwd-only`. As every
-`mtp-*` directory, it needs no CMake change. A re-scaffold removes it, so keep it
-here or in the source repository.
+`./run.sh -c cortexm-weactf411-cmake-gcc-debug mtp-spi-flash --hwd-only`. As every
+`mtp-*` directory, it needs no CMake change. Each suite is its own file and
+registers itself with a `mt::static_suite`; there is no list in `main.cpp`. The
+complete TAP report is written to `.hw-logs/mtp-spi-flash.tap` next to the
+runner log. A re-scaffold removes it, so keep it here or in the source
+repository.
 
 | Suite | Checks |
 | --- | --- |
