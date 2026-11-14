@@ -109,6 +109,10 @@ Options:
 | `--lean` | Full kernel, plus only the build/run files of the selected test (default). |
 | `--minimal` | Keep the whole selected port; prune only the unselected boards, tests, platforms and suites. |
 | `--full` | Copy the complete harness and every platform/board/test. |
+| `--micro-test-plus <git-url\|folder>` | Add the µTest++ test framework and the `mtp-*` starter tests (see "µTest++ tests" below). |
+| `--micro-test-plus-ref <tag\|branch>` | What to clone when `--micro-test-plus` is a git URL. |
+| `--micro-test-plus-force` | Integrate µTest++ also on boards that fail the runtime rule. |
+| `--no-micro-test-plus` | Drop a µTest++ integration recorded in `scaffold.json`. |
 | `--yes` | Non-interactive; use the default selection. |
 | `--help` | Usage. |
 | `--version` | Print the tool version. |
@@ -117,7 +121,7 @@ The strictest layout option given wins; a re-run without one keeps the layout re
 `scaffold.json`. With git sources the numeric ids depend on which repositories were cloned,
 so prefer names (`cortexm-pico2.smp-mat-test-ram`) or run `discover` with the same `--source`.
 
-Environment: `SCAFFOLD_SOURCE`, `SCAFFOLD_SELECT`, `SCAFFOLD_CACHE` (clone cache),
+Environment: `SCAFFOLD_SOURCE`, `SCAFFOLD_SELECT`, `SCAFFOLD_MICRO_TEST_PLUS`, `SCAFFOLD_CACHE` (clone cache),
 `SCAFFOLD_DEBUG=1` (stack traces).
 Per-tool overrides use `SCAFFOLD_<TOOL>` (for example `SCAFFOLD_CMAKE=/opt/cmake/bin/cmake`).
 
@@ -704,6 +708,46 @@ build command and the expected hardware output. The example is illustrative:
 its test directory must exist in the source repository and be committed there
 before a clean re-scaffold can reproduce it.
 
+## µTest++ tests (`--micro-test-plus`)
+
+`--micro-test-plus <git-url|folder>` adds the µTest++ unit-test framework
+(<https://github.com/micro-os-plus/micro-test-plus-xpack>,
+docs <https://micro-os-plus.github.io/micro-test-plus-xpack/>) to the workspace.
+A µTest++ test is an ordinary test directory named `mtp-<name>`: the harness builds
+and registers it like any other; inside, a µTest++ runner checks with `t.expect`
+and reports in TAP, ending with the `RESULT:` line the runners read.
+
+```bash
+node bin/scaffold.js ../ws-pico2 --select cortexm-pico2.smp-mat-test \
+  --micro-test-plus https://github.com/micro-os-plus/micro-test-plus-xpack.git \
+  --micro-test-plus-ref v6.0.0 --yes
+cd ../ws-pico2/tests && ./test.sh cortexm-pico2-cmake-gcc-debug mtp-example mtp-smp --hwd-only
+```
+
+What it adds: the framework in `third_party/micro-test-plus/` (unchanged), the board
+support in `<port>/test/mtp/`, a µTest++ block in each board's `tests.cmake` that links
+it to every `mtp-*` test, the starter test `mtp-example`, and, on boards whose other
+cores it can start, `mtp-smp`.
+
+- **The runtime rule.** A board gets µTest++ only if its boot runs the static
+  constructors, its linker script keeps `.init_array` and defines
+  `_Heap_Begin`/`_Heap_Limit`, its start-up hands that heap to the µOS++ free store, and
+  `sbrk` uses it. The scaffolder checks this in the sources (`--micro-test-plus-force`
+  overrides); `mtp-example` checks it again on the target.
+- **Console models.** AArch32/AArch64: a stdout stream to the UART and to semihosting
+  `SYS_WRITE0`, batched; Cortex-M: a strong `_write ()`, with the newlib-nano printf
+  wrapped so that µTest++'s `%zu` prints; POSIX: the host's stdout.
+- **`mtp-smp`** checks affinity, critical sections, spinlocks, mutexes (with priority
+  inheritance across cores), the scheduler, cross-core sync, a queue stress and atomic
+  read-modify-write on every core. Spinlocks and `atomic_add ()` use the board's method:
+  `LDAXR`/`STLXR` on the Raspberry Pi, the SIO hardware spinlocks on the RP2040/RP2350,
+  whose `LDREX`/`STREX` do not exclude the other core.
+- **Verified on the boards:** Zero 2 W (AArch64, 4 cores) 27 + 76 checks, Pico 2 (RP2350,
+  2 cores) 27 + 69 checks.
+
+`scaffold.md`, chapter 13, explains the integration, analysed from the hand-made one in
+`micro-os-scaffold-workspace-rpi-zero-2w`, and how to run with two probes on one host.
+
 ## Idempotence and updates
 
 Every run rescans the workspace, refreshes the tool paths/versions, rewrites `scaffold.json`,
@@ -725,3 +769,5 @@ project is deselected it is left on disk but is no longer listed in
 - Lean workspaces do not contain build outputs; `tests/test.sh` builds before it runs.
 - Re-running the scaffolder on a workspace removes test directories that are not selected,
   including ones added locally. Copy new work to the source repository first.
+- µTest++ was run on the Zero 2 W and the Pico 2; other boards are integrated by the same
+  rules but not yet run on hardware.

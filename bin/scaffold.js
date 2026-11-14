@@ -13,6 +13,7 @@ const { scaffold, refreshDocs } = require('../lib/scaffold');
 const { slimConfig, leanReadme, cleanLeanOutputs } = require('../lib/lean');
 const { runVerification } = require('../lib/build');
 const { resolveSource } = require('../lib/source');
+const microTestPlus = require('../lib/micro-test-plus');
 const { parseHierarchicalSelection, isDirectory, readJson, writeFile } = require('../lib/util');
 
 const PACKAGE = readJson(path.join(__dirname, '..', 'package.json'), {});
@@ -39,6 +40,16 @@ Options:
                         or a comma separated list of git URLs to clone as siblings
                         (default: scaffold.json, then cwd)
   --branch <name>       branch to clone when --source is a git URL (or url#branch)
+  --micro-test-plus <git-url|folder>
+                        add the µTest++ test framework (micro-test-plus) to the
+                        CMake boards: framework in third_party/, board support,
+                        a tests.cmake block for every mtp-* test, and a starter
+                        test mtp-example (see README "µTest++")
+  --micro-test-plus-ref <tag|branch>
+                        what to clone when --micro-test-plus is a git URL
+  --micro-test-plus-force
+                        integrate also on boards that fail the runtime rule
+  --no-micro-test-plus  drop a µTest++ integration recorded in scaffold.json
   --select <list>       architecture[.board[.test]] tokens, ids, or 'all'
                         (e.g. 2, 2.3, 2.3.1; default: previous, else one board per port)
   --config <name>       build only this configuration (repeatable)
@@ -55,7 +66,8 @@ Options:
 
 Environment:
   SCAFFOLD_SOURCE       same as --source
-  SCAFFOLD_SELECT       same as --select`;
+  SCAFFOLD_SELECT       same as --select
+  SCAFFOLD_MICRO_TEST_PLUS   same as --micro-test-plus`;
 }
 
 function parseArgs(argv) {
@@ -70,6 +82,10 @@ function parseArgs(argv) {
     yes: false,
     branch: null,
     mode: null,
+    microTestPlus: null,
+    microTestPlusRef: null,
+    microTestPlusForce: false,
+    noMicroTestPlus: false,
     version: false,
     help: false,
   };
@@ -97,6 +113,12 @@ function parseArgs(argv) {
     else if (arg === '--build') result.build = true;
     else if (arg === '--list-only') result.listOnly = true;
     else if (arg === '--yes' || arg === '-y') result.yes = true;
+    else if (arg === '--micro-test-plus') result.microTestPlus = nextValue('--micro-test-plus');
+    else if (arg.startsWith('--micro-test-plus=')) result.microTestPlus = arg.slice('--micro-test-plus='.length);
+    else if (arg === '--micro-test-plus-ref') result.microTestPlusRef = nextValue('--micro-test-plus-ref');
+    else if (arg.startsWith('--micro-test-plus-ref=')) result.microTestPlusRef = arg.slice('--micro-test-plus-ref='.length);
+    else if (arg === '--micro-test-plus-force') result.microTestPlusForce = true;
+    else if (arg === '--no-micro-test-plus') result.noMicroTestPlus = true;
     else if (arg === '--branch') result.branch = nextValue('--branch');
     else if (arg.startsWith('--branch=')) result.branch = arg.slice('--branch='.length);
     else if (arg === '--minimal' || arg === '--lean' || arg === '--full') modes.add(arg.slice(2));
@@ -362,6 +384,21 @@ async function commandScaffold(options) {
   config.sourceUrl = resolved.url;
   config.sourceBranch = resolved.branch;
   config.mode = mode;
+
+  // µTest++: given now, or kept from the previous run unless dropped.
+  const mtpSpec = options.noMicroTestPlus
+    ? null
+    : options.microTestPlus ?? process.env.SCAFFOLD_MICRO_TEST_PLUS ?? previous?.microTestPlus?.spec ?? null;
+  const mtpRef = options.microTestPlus
+    ? options.microTestPlusRef
+    : options.microTestPlusRef ?? previous?.microTestPlus?.ref ?? null;
+  const mtpForce = options.microTestPlusForce || (!options.microTestPlus && Boolean(previous?.microTestPlus?.force));
+  let mtpFramework = null;
+  if (mtpSpec) {
+    console.log('');
+    console.log('µTest++ (micro-test-plus):');
+    mtpFramework = microTestPlus.resolveFramework(mtpSpec, mtpRef);
+  }
   saveConfig(destination, config);
   printToolSummary(config);
 
@@ -380,6 +417,8 @@ async function commandScaffold(options) {
     toolsInfo,
     minimal: mode !== 'full',
     lean: mode === 'lean',
+    microTestPlus: mtpFramework,
+    microTestPlusForce: mtpForce,
   });
   console.log(`  layout:        ${mode}`);
   saveConfig(destination, config.lean ? slimConfig(config) : config);
@@ -393,6 +432,7 @@ async function commandScaffold(options) {
     console.log(`  openocd:       ${result.openocd.root} (${result.openocd.count} board configs)`);
   }
   for (const patch of result.patches) console.log(`  patched:       ${patch}`);
+  microTestPlus.printSummary(config.microTestPlus);
   for (const [key, xpack] of Object.entries(result.xpacks)) {
     console.log(`  xpack:         ${key} ${xpack.version ?? ''} -> ${xpack.destination}`);
   }

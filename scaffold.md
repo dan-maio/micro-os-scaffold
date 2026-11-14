@@ -25,13 +25,14 @@ specifics, how to use the tool, and how to extend a test application locally.
 10. Minimal mode versus lean mode
 11. How to use the scaffolder
 12. Extending a test application locally
-13. Rules, invariants and design philosophy
-14. Troubleshooting
-15. The current trial workspaces
-16. Limitations and future work
-17. Glossary
-18. Appendix A: typical lean layouts
-19. Appendix B: command cheat sheet
+13. µTest++ tests (`--micro-test-plus`)
+14. Rules, invariants and design philosophy
+15. Troubleshooting
+16. The current trial workspaces
+17. Limitations and future work
+18. Glossary
+19. Appendix A: typical lean layouts
+20. Appendix B: command cheat sheet
 
 ---
 
@@ -929,6 +930,10 @@ node /path/to/micro-os-scaffold/bin/scaffold.js \
 | `--lean` | Complete kernel plus only the files the selected test needs to build and run (default). |
 | `--minimal` | Keeps the whole selected port; prunes only unselected boards, tests, platforms and suites. |
 | `--full` | Complete harness and all boards/tests. |
+| `--micro-test-plus <git-url\|folder>` | Add the µTest++ framework and the `mtp-*` starter tests (chapter 13). |
+| `--micro-test-plus-ref <tag\|branch>` | What to clone when `--micro-test-plus` is a git URL. |
+| `--micro-test-plus-force` | Integrate also on boards that fail the runtime rule (13.3). |
+| `--no-micro-test-plus` | Drop a µTest++ integration recorded in `scaffold.json`. |
 | `--help` | Usage. |
 | `--version` | Print the tool version. |
 
@@ -939,6 +944,7 @@ SCAFFOLD_SOURCE   default source workspace
 SCAFFOLD_SELECT   default selection
 SCAFFOLD_CACHE    where git sources are cloned (default ~/.cache/micro-os-scaffold)
 SCAFFOLD_DEBUG=1  print stack traces on error
+SCAFFOLD_MICRO_TEST_PLUS  default for --micro-test-plus
 ```
 
 The strictest layout option given wins (`--lean` over `--minimal` over
@@ -1285,16 +1291,224 @@ copy it to the source repository first.
 
 ---
 
-# 13. Rules, invariants and design philosophy
+# 13. µTest++ tests (`--micro-test-plus`)
 
-## 13.1 Source repositories are read-only
+µTest++ (`micro-test-plus`, <https://github.com/micro-os-plus/micro-test-plus-xpack>,
+documentation at <https://micro-os-plus.github.io/micro-test-plus-xpack/>) is the
+µOS++ unit-test framework: a runner, suites, test cases, `expect` checks, and a TAP
+report. `--micro-test-plus` adds it to a scaffolded workspace, so that tests written
+with it build, run and report through the same CMake/CTest harness as every other
+test.
+
+```bash
+# From a folder (an npm/xpm install, or a checkout)
+node bin/scaffold.js /path/to/destination --select cortexm-pico2.smp-mat-test \
+  --micro-test-plus ~/xpacks/micro-test-plus --yes
+
+# From git, at a tag
+node bin/scaffold.js /path/to/destination --select aarch64-rpi-zero-2w.smp-mat-test \
+  --micro-test-plus https://github.com/micro-os-plus/micro-test-plus-xpack.git \
+  --micro-test-plus-ref v6.0.0 --yes
+```
+
+The option is recorded in `scaffold.json` (`microTestPlus`) and kept by later runs;
+`--no-micro-test-plus` removes it.
+
+## 13.1 How the reference workspace does it
+
+The design follows the hand-made integration in
+`micro-os-scaffold-workspace-rpi-zero-2w` (a lean `aarch64-rpi-zero-2w` workspace
+with four µTest++ tests: `mtp-rtos`, `mtp-smp`, `mtp-sdcard`, `mtp-wifi`, 243
+checks, all passing on the board). Its parts are:
+
+| Part | Where | Role |
+| --- | --- | --- |
+| The framework | `third_party/micro-test-plus/` | µTest++ 6.0.0, unchanged: `include/`, `src/` |
+| Board support | `<port>/test/boards/rpi-zero-2w/mtp/` | `mtp_board.*` (console, RESULT line, cores), `mtp_startup.hpp` |
+| CMake | `<port>/test/rpi-zero-2w/tests.cmake` | an INTERFACE library with the framework sources, the board support and the defines; one branch in `board_test_libs` links it to every `mtp-*` test |
+| Tests | `<port>/test/rpi-zero-2w/mtp-*/` | ordinary test directories: globbed, built, registered as `<platform>-mtp-<name>-qemu\|hwd` |
+
+A µTest++ test then runs like any other:
+
+1. **Build and registration.** The port's builder globs the test directory and makes
+   its images; nothing in CMake names the test.
+2. **Start-up.** The boot code clears `.bss`, hands the linker heap to the µOS++ free
+   store, runs the static constructors (the `mt::runner` is one), then calls
+   `os_main ()` on the main thread.
+3. **The run.** `os_main ()` calls `mtp_board::start ()` (routes stdout), optionally
+   `release_cores ()`, then `tr.initialise ()`, `tr.add_suite (...)`, `tr.run_suites ()`,
+   and `mtp_board::finish ()`, which prints `RESULT: PASS|FAIL (...)` and signals the
+   verdict.
+4. **The report.** µTest++ prints TAP on stdout. The board support sends it to the UART
+   at once and to the host through semihosting `SYS_WRITE0`, batched per suite: every
+   semihosting call halts the cores while the debugger serves it. `run-hw.sh` (OpenOCD)
+   or `run-qemu.sh` collects the text and looks for `RESULT: PASS`.
+
+Lessons from that integration, now built into the scaffolder:
+
+- the build is strict C++20, which hides `fopencookie ()` and `sbrk ()`: `_GNU_SOURCE`;
+- newlib has no `CLOCK_MONOTONIC`: no µTest++ timings;
+- µTest++ can open a report file, which pulls in `fopen ()`: a weak `_open ()` stub;
+- QEMU drops semihosting `SYS_WRITE` on handle 1: the support uses `SYS_WRITE0`;
+- the build has no exceptions: tests use `expect`, never `require`;
+- µTest++ compares `const char*` as C strings: compare addresses as `std::uintptr_t`
+  (a pointer comparison once read the heap as a string and took six minutes on the board).
+
+## 13.2 What the scaffolder adds
+
+| Added | Where |
+| --- | --- |
+| The framework, unchanged | `third_party/micro-test-plus/` (from the folder, or a clone cached in `~/.cache/micro-os-scaffold/micro-test-plus/<sha>`) |
+| Board support, per port | `<port>/test/mtp/`: `mtp_board.hpp`, `mtp_board.cpp`, `mtp_startup.hpp`, `README.md` |
+| A µTest++ block | at the end of `<port>/test/<board>/tests.cmake`, plus one `^mtp-` branch in its library hook |
+| `mtp-example` | every integrated board: "00 - Cores" (if the cores can be released), "01 - Runtime", "02 - Basics" |
+| `mtp-smp` | the boards whose other cores the support can start (13.5) |
+| Selection | the starter tests are added to the configuration and to `tests/scripts/selected-tests.txt` |
+| Documentation | a "µTest++ tests" section in the workspace `README.md` |
+
+The block defines what the board support needs to know:
+
+| Define | Meaning |
+| --- | --- |
+| `MTP_CONSOLE=1\|2\|3` | the console model (13.4) |
+| `MTP_HAS_SMP_BOOT=0\|1\|2` | how to release the other cores: none, the port's test-smp-boot helpers, or `multicore::launch_core1` (RP2040/RP2350) |
+| `MTP_NANO_PRINTF=1` | the port links newlib-nano (13.4) |
+| `MTP_CARRY_STARTUP=1` | the tests carry their own start-up (`mtp_startup.hpp`) |
+| `MTP_HOSTED` | POSIX native: no linker heap |
+
+A board whose QEMU image replaces the board (`board_test_qemu_libs` in `tests.cmake`,
+as on the Pico 2, which runs a generic single-core Cortex-M33 under QEMU) gets its
+`mtp-*` tests on hardware only: the runtime rule was checked on the board.
+
+## 13.3 The runtime rule
+
+Every board that runs µTest++ must have a boot phase that runs the static
+constructors, and a heap that `malloc`/`new` and `sbrk` use, defined by the linker
+script. The scaffolder checks it in the sources before it integrates a board:
+
+- the linker script keeps `.init_array` between `__init_array_start` and `__init_array_end`;
+- the linker script defines `_Heap_Begin` and `_Heap_Limit`;
+- the boot code calls `__libc_init_array` or `os_run_init_array`;
+- the start-up calls `os_startup_initialize_free_store` (or the tests carry their own start-up);
+- `_sbrk` works over `_Heap_Limit`.
+
+The evidence (file and line) goes to `scaffold.json` and to the workspace README.
+A board that fails is reported `rule-not-met` and left out;
+`--micro-test-plus-force` integrates it anyway. On the target, `mtp-example` checks
+the same at run time ("01 - Runtime": `.data`/`.bss`, constructor order with
+`init_priority`, allocation inside `_Heap_Begin .. _Heap_Limit`, `sbrk`).
+
+## 13.4 Console models
+
+| Model | Ports | stdout goes |
+| --- | --- | --- |
+| 1 | AArch32, AArch64 | a `fopencookie` stream: UART at once (`uart1.putc_uart`), host by batched `SYS_WRITE0` |
+| 2 | Cortex-M | a strong `_write ()` replacing the port's weak stub: `uart::write`, host by `hw_result::semi_write0` |
+| 3 | POSIX native | the host's stdout |
+
+Cortex-M links newlib-nano, whose printf has no `z` modifier: µTest++'s `%zu` printed
+`zu` and ate no argument (`ok zu - ...`). With `MTP_NANO_PRINTF=1` the block links the
+printf family through wrappers (`-Wl,--wrap=printf,...`) that drop the `z` (`size_t`
+is `unsigned int` there), and links `-u _printf_float` for the `approx ()` messages.
+The framework stays unchanged.
+
+## 13.5 SMP tests: `mtp-smp`
+
+`release_cores ()` pins the runner to core 0, starts the other cores and waits for them
+to join the scheduler:
+
+- `MTP_HAS_SMP_BOOT=1`: the port's helpers (`smp_install_boot_threads`,
+  `smp::start_secondary_cores`, `test_wait_secondaries`);
+- `MTP_HAS_SMP_BOOT=2`: on the RP2040/RP2350 core 1 does not start at boot; the support
+  registers its idle thread (`os_idle_thread_core[1]`), calls
+  `multicore::launch_core1 (port_smp_secondary_start, port_core1_stack_top ())` and
+  then `port_smp_core0_ipi_enable ()`, as the board's `smp-mat-test` does. Without it a
+  pico2 test links the SMP kernel (`NCPU=2`) and runs on core 0 alone.
+
+`mtp-smp` is written for `OS_NCPU` cores:
+
+| Suite | Checks |
+| --- | --- |
+| 00 Cores | the other cores joined |
+| 01 Affinity | pinned threads stay on their core; affinity changes at run time |
+| 02 Critical sections | `interrupts::critical_section` excludes every core, masks, nests, restores; a core waits while another holds the kernel lock; `scheduler::critical_section` holds off switches on its core and not on the others |
+| 03 Spinlocks | no lost update from every core; `try_lock` refused while another core holds it |
+| 04 Mutexes | contention, `try_lock`/`timed_lock` against another core, recursive, priority inheritance across cores |
+| 05 Scheduler | preemption, `yield`, `sleep_for` on every core, load spread |
+| 06 Cross-core sync | semaphore ping-pong, ordered message queue, event flags, a 200-round barrier |
+| 07 Queue stress | one producer per core into one bounded queue |
+| 08 Atomic read-modify-write | `mtp_board::atomic_add ()` from every core; `std::atomic` where the hardware supports it |
+
+Cross-core read-modify-write goes through each board's own method,
+`mtp_board::sync_method ()`, printed at the start of the report:
+
+| Board | Method | Instructions |
+| --- | --- | --- |
+| Raspberry Pi (AArch64) | exclusive monitor | `LDAXR`/`STLXR`, inline (`no-outline-atomics`: GCC would otherwise call libgcc's `__aarch64_ldadd4_acq_rel`, which picks LSE or LDAXR at run time) |
+| AArch32 | exclusive monitor | `LDREX`/`STREX` |
+| RP2040/RP2350 | SIO hardware spinlocks | 8..30 for `mtp_board::spinlock`, 31 for `atomic_add ()`; 0 is the kernel's, 1 the console's, 2-3 `smp-mat-test`'s |
+
+On the RP2350 `LDREX`/`STREX` exclude only the same core: `std::atomic::fetch_add`
+from both cores kept 51547 of 100000 increments. `std::atomic` read-modify-write is
+therefore not checked there, and must not be shared between its cores.
+
+Two port differences the tests respect:
+
+- On the RP2350 `scheduler::critical_section` masks this core's interrupts and takes
+  the kernel spinlock; on AArch64 it only marks the core locked. Inside it the clock
+  may stand still, so a test bounds such waits by iterations, never by `sysclock`.
+- `scheduler::critical_section` is per core on both: another core keeps running.
+
+## 13.6 Measured
+
+| Board | Test | Result |
+| --- | --- | --- |
+| Raspberry Pi Zero 2 W, AArch64, 4 cores | `mtp-example` | 27/27, board |
+| | `mtp-smp` (LDAXR/STLXR) | 76/76, board, 49 s |
+| Raspberry Pi Pico 2, RP2350, 2 cores | `mtp-example` | 27/27, board |
+| | `mtp-smp` (SIO) | 69/69, board, 7 s |
+
+## 13.7 Running, and two probes on one host
+
+```bash
+cd destination/tests
+./test.sh <configuration> mtp-example mtp-smp             # QEMU (or host) images
+./test.sh <configuration> mtp-example mtp-smp --hwd-only  # on the board
+```
+
+The Raspberry Pi boards' OpenOCD config defaults to a J-Link; with the CMSIS-DAP JTAG
+probe say `PROBE=cmsis-dap`. Two probes of the same USB id on one host (a JTAG probe
+for a Raspberry Pi and a Debug Probe for a Pico 2, both `2e8a:000c`) need one to be
+named: point `OPENOCD` at a wrapper that adds `adapter serial <serial>`
+(`cat /sys/bus/usb/devices/*/serial`), placed so that
+`$(dirname $OPENOCD)/../openocd/scripts` is OpenOCD's scripts tree:
+
+```sh
+#!/bin/sh
+exec /path/to/xpack-openocd/bin/openocd -c "adapter serial E46268C3571E0D36" "$@"
+```
+
+## 13.8 Adding a µTest++ test
+
+Copy a starter test to `mtp-<name>` and edit it; no CMake file changes. One suite per
+source file, registered with `tr.add_suite ("NN - Name", fn)`; use `t.expect`, compare
+kernel results with `mtp::ok` or `mtp::code (EWOULDBLOCK)`, end a QEMU image that needs
+the hardware with `return mtp_board::skip ("why");`, and pin threads to core 0 when a
+check depends on one core. For data shared between cores use the kernel,
+`mtp_board::spinlock` or `mtp_board::atomic_add ()`.
+
+---
+
+# 14. Rules, invariants and design philosophy
+
+## 14.1 Source repositories are read-only
 
 The scaffolder reads the source root and writes only to the destination. It
 does not commit, format, patch or delete source files. The generated
 workspace may contain patched copies (for example, a harness path adapted to
 the sibling layout), but the originals are untouched.
 
-## 13.2 The kernel is complete
+## 14.2 The kernel is complete
 
 The kernel is the interface. Keeping it complete means:
 
@@ -1303,31 +1517,31 @@ The kernel is the interface. Keeping it complete means:
 - a test can be written, compiled and debugged without guessing which parts
   of the kernel were removed.
 
-## 13.3 The port is selected, not exhaustive
+## 14.3 The port is selected, not exhaustive
 
 The port contains support for several boards and SoCs. The scaffolder keeps
 the selected board and the source/SoC/include families it actually names. It
 does not keep every board “just in case”.
 
-## 13.4 Tests are named, not globbed
+## 14.4 Tests are named, not globbed
 
 A selected test is copied because it was selected, not because it happened to
 be in a directory. Sibling sources pulled in with `#include "../<app>/..."`
 are kept as helpers and excluded from the test build, so a helper does not
 become an accidental second test.
 
-## 13.5 Every scaffold is build-verified
+## 14.5 Every scaffold is build-verified
 
 A workspace that cannot build is not useful. The tool runs the real build and
 records the result before declaring success.
 
-## 13.6 Reproducibility comes from the manifest
+## 14.6 Reproducibility comes from the manifest
 
 `scaffold.json` records the selection, the tool paths and the configuration.
 Re-running the same command recreates the same workspace, even if the current
 shell environment changes.
 
-## 13.7 Selection ids are convenient, names are stable
+## 14.7 Selection ids are convenient, names are stable
 
 Numeric ids are short and readable, but they are assigned alphabetically. A
 new test shifts later ids. Use `architecture.board.<app-name>` in scripts and
@@ -1335,7 +1549,7 @@ documentation.
 
 ---
 
-# 14. Troubleshooting
+# 15. Troubleshooting
 
 | Symptom | Likely cause | What to do |
 | --- | --- | --- |
@@ -1353,11 +1567,11 @@ documentation.
 
 ---
 
-# 15. The current trial workspaces
+# 16. The current trial workspaces
 
 The four trial workspaces were generated to validate the lean design.
 
-## 15.1 Arm Cortex-M
+## 16.1 Arm Cortex-M
 
 ```text
 /home/dan/Work/micro-os-scaffold-workspace-minimal-arm
@@ -1379,7 +1593,7 @@ node /home/dan/Work/micro-os-scaffold/bin/scaffold.js \
   --lean --yes
 ```
 
-## 15.2 RISC-V VisionFive 2 Lite
+## 16.2 RISC-V VisionFive 2 Lite
 
 ```text
 /home/dan/Work/micro-os-scaffold-workspace-minimal-riscv
@@ -1401,7 +1615,7 @@ node /home/dan/Work/micro-os-scaffold/bin/scaffold.js \
   --lean --yes
 ```
 
-## 15.3 Rust Cortex-M
+## 16.3 Rust Cortex-M
 
 ```text
 /home/dan/Work/micro-os-scaffold-workspace-minimal-rust
@@ -1423,7 +1637,7 @@ node /home/dan/Work/micro-os-scaffold/bin/scaffold.js \
   --lean --yes
 ```
 
-## 15.4 Zig Cortex-M
+## 16.4 Zig Cortex-M
 
 ```text
 /home/dan/Work/micro-os-scaffold-workspace-minimal-zig
@@ -1445,7 +1659,7 @@ node /home/dan/Work/micro-os-scaffold/bin/scaffold.js \
   --lean --yes
 ```
 
-## 15.5 What the trials prove
+## 16.5 What the trials prove
 
 - CMake pruning survives a Cortex-M build and a RISC-V build.
 - Cargo pruning survives a cross-target build.
@@ -1456,7 +1670,7 @@ node /home/dan/Work/micro-os-scaffold/bin/scaffold.js \
 
 ---
 
-# 16. Limitations and future work
+# 17. Limitations and future work
 
 - **Hardware availability.** The tool can build a hardware test without a
   board, but it cannot run it. The trial workspaces were built and verified;
@@ -1473,10 +1687,14 @@ node /home/dan/Work/micro-os-scaffold/bin/scaffold.js \
 - **Source test provenance.** The tool discovers files on disk, including
   untracked files. A test that is only present locally will be scaffolded,
   but it will not survive a clean checkout. Commit tests that matter.
+- **µTest++ coverage.** `--micro-test-plus` was verified on the Zero 2 W
+  (AArch64) and the Pico 2 (RP2350), on the boards. The other ports' boards
+  are integrated by the same rules but not yet run. Probe selection by serial
+  number is a wrapper (13.7), not yet an option of the runner.
 
 ---
 
-# 17. Glossary
+# 18. Glossary
 
 | Term | Definition |
 | --- | --- |
@@ -1502,9 +1720,9 @@ node /home/dan/Work/micro-os-scaffold/bin/scaffold.js \
 
 ---
 
-# 18. Appendix A: typical lean layouts
+# 19. Appendix A: typical lean layouts
 
-## 18.1 CMake lean workspace
+## 19.1 CMake lean workspace
 
 ```text
 destination/
@@ -1536,7 +1754,7 @@ destination/
     xpacks/@micro-os-plus/build-helper/
 ```
 
-## 18.2 Cargo lean workspace
+## 19.2 Cargo lean workspace
 
 ```text
 destination/
@@ -1556,7 +1774,7 @@ destination/
     scripts/env.sh
 ```
 
-## 18.3 Zig lean workspace
+## 19.3 Zig lean workspace
 
 ```text
 destination/
@@ -1577,7 +1795,7 @@ destination/
 
 ---
 
-# 19. Appendix B: command cheat sheet
+# 20. Appendix B: command cheat sheet
 
 ```bash
 # Discover the source workspace
