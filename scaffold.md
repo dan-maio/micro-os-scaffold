@@ -616,6 +616,23 @@ to those build systems:
 ./test.sh cortexm-pico2-zig-debug
 ```
 
+### Moving or renaming the workspace
+
+`tests/scripts/env.sh` and `tests/run.sh` derive the workspace root from
+their own location; the CMake files use the sibling paths. Renaming the top
+folder therefore works without editing any file.
+
+A build tree moved with the workspace is a special case: its
+`CMakeCache.txt` keeps absolute paths. `tests/run.sh` compares
+`CMAKE_CACHEFILE_DIR` and `CMAKE_HOME_DIRECTORY` with the current folders,
+removes the stale tree and configures afresh, so a moved workspace builds
+without a manual `clean`.
+
+The tool paths in `tests/scripts/env.sh` remain absolute. On another
+machine, re-scaffold or override them with `UOS_TOOL_<NAME>`. The
+`destination` and µTest++ source path in `scaffold.json` are metadata, not
+build inputs; re-scaffolding refreshes them.
+
 ## 8.4 Logs
 
 Every verification writes:

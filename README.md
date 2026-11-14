@@ -825,6 +825,26 @@ semihosting `argc`/`argv` check), on boards whose other cores it can start,
 `scaffold.md`, chapter 13, explains the integration, analysed from the hand-made one in
 `micro-os-scaffold-workspace-rpi-zero-2w`, and how to run with two probes on one host.
 
+## Moving or renaming the workspace
+
+The generated workspace is relocatable. `tests/scripts/env.sh` and
+`tests/run.sh` find the root from their own location, and CMake uses the
+sibling paths, so renaming the top folder does not break the build.
+
+If a `tests/build/<configuration>/` tree is moved with the workspace, its
+`CMakeCache.txt` still holds the old absolute paths. `tests/run.sh` detects
+this (it compares `CMAKE_CACHEFILE_DIR` and `CMAKE_HOME_DIRECTORY` with the
+current folders), removes the stale tree and configures again. No manual
+`tests/run.sh clean` is needed.
+
+Two things are intentionally absolute:
+
+- the tool paths in `tests/scripts/env.sh`; on the same machine they keep
+  working, on another machine re-scaffold or override them with
+  `UOS_TOOL_<NAME>`;
+- the metadata in `scaffold.json` (`destination`, the µTest++ source path);
+  it is not used by the build. Re-scaffolding refreshes it.
+
 ## Idempotence and updates
 
 Every run rescans the workspace, refreshes the tool paths/versions, rewrites `scaffold.json`,
