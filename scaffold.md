@@ -1496,6 +1496,7 @@ on the kernel lock.
 | ST NUCLEO-F411RE, Cortex-M4, 1 core | `mtp-example` | 24/24, board (ST-LINK/V2.1), 11 s |
 | WeAct F411CE, Cortex-M4, 1 core | `mtp-example` | 24/24, board (WCH-Link), 22 s |
 | | `mtp-spi-flash` (board-specific, 13.8) | 52/52, board, 19 s; W25Q128: polled 1406, IRQ 759, DMA 2188 KiB/s |
+| | the same flash as 5 classic tests, no µTest++ (13.8) | 5/5, board, 4-6 s each |
 
 ## 13.7 Running, and two probes on one host
 
@@ -1540,6 +1541,14 @@ threads sharing the bus under a mutex. Rules that came out of it:
   DMA and leaves SPI1's interrupt masked; the IRQ path needs it unmasked);
 - add the test to `tests/scripts/selected-tests.txt` to run it by default, and keep a copy in
   the source repository: a re-scaffold removes it.
+
+The same checks can be written without µTest++. `examples/cortexm-weactf411-flash-battery/`
+splits them into five classic tests (`flash-id`, `flash-raw`, `flash-transports`,
+`flash-flatfs`, `flash-threads`): each its own `os_main`, one numbered `ok`/`FAIL` line per
+check on the UART, `RESULT: PASS|FAIL` through `hw_result`, and one shared header-only helper
+in the board's test `include/` (so the board's other tests link nothing new). The trade-off:
+no framework and one CTest case per area, but a plain report instead of TAP, and only the
+verdict reaches the runner's log; the per-check lines are on the UART.
 
 ---
 

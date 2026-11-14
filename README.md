@@ -747,7 +747,8 @@ cores it can start, `mtp-smp`.
 - **Verified on the boards:** Zero 2 W AArch64 27 + 76 checks, Zero 2 W AArch32 27 + 76,
   Pi 4 B 27 + 78 (with the speed-up), Pico 2 (RP2350) 27 + 69, NUCLEO-F411 (Cortex-M4) 24,
   WeAct F411CE 24, plus 52 in a board-specific SPI-flash test
-  (`examples/cortexm-weactf411-mtp-spi-flash/`).
+  (`examples/cortexm-weactf411-mtp-spi-flash/`); the same flash is also tested by five
+  classic tests without µTest++ (`examples/cortexm-weactf411-flash-battery/`), 5/5.
 
 `scaffold.md`, chapter 13, explains the integration, analysed from the hand-made one in
 `micro-os-scaffold-workspace-rpi-zero-2w`, and how to run with two probes on one host.
