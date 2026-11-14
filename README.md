@@ -268,7 +268,9 @@ the kernel, its `package.json` and its `test_smpl/` runners are reached through
 from `scaffold.json`, and — with `--micro-test-plus` — the runner patches that pass the
 debugger command line and the report path (the board `hw.sh` and the shared
 `run-hw.sh`/`run-qemu.sh`/`run-host.sh` get one marked block each). `tests/scripts/env.sh`
-derives the workspace root from its own location, so a generated workspace can be moved.
+derives the workspace root from its own location, so a generated workspace can be moved;
+if a build tree is moved with it, `tests/run.sh` detects the stale absolute paths in the
+CMake cache and reconfigures instead of failing.
 All are listed in the generated README and in `.scaffold-manifest.json`.
 
 ## Minimal pruning (`--minimal`, and the first stage of lean)

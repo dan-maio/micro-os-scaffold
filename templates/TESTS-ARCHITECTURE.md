@@ -429,6 +429,12 @@ The default run excludes `-hwd` cases, because they need a board and a probe.
 If the selected tests are hardware-only, `run.sh` says so and runs them; it
 does not silently do nothing.
 
+A build tree copied or moved with the workspace has absolute paths in its
+CMake cache. `run.sh` compares `CMAKE_CACHEFILE_DIR` and
+`CMAKE_HOME_DIRECTORY` with the current folders; on a mismatch it removes the
+stale tree and configures afresh, so a renamed workspace builds without a
+manual `clean`.
+
 The selection can name:
 
 - an application directory (`mtp-smp`, `flash-id`, `smp-mat-test`);

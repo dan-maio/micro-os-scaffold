@@ -100,6 +100,20 @@ esac
 BUILD_DIR="$HERE/build/$CONFIG"
 
 configure_and_build() {
+  # A build tree copied or moved from another workspace keeps absolute paths
+  # in its CMake cache. Detect that and start clean, instead of letting CMake
+  # fail with "current CMakeCache.txt directory is different". This is what
+  # makes a renamed workspace build after a move.
+  if [[ -f "$BUILD_DIR/CMakeCache.txt" ]]; then
+    local cached_dir cached_src
+    cached_dir="$(sed -n 's/^CMAKE_CACHEFILE_DIR:INTERNAL=//p' "$BUILD_DIR/CMakeCache.txt" | head -n 1)"
+    cached_src="$(sed -n 's/^CMAKE_HOME_DIRECTORY:INTERNAL=//p' "$BUILD_DIR/CMakeCache.txt" | head -n 1)"
+    if [[ "$cached_dir" != "$BUILD_DIR" || "$cached_src" != "$HERE" ]]; then
+      echo "== build tree was moved from ${cached_dir:-another folder}; reconfiguring"
+      rm -rf "$BUILD_DIR"
+    fi
+  fi
+
   mkdir -p "$BUILD_DIR/xpacks/@xpacks" "$BUILD_DIR/xpacks/@xpack-3rd-party"
   for pair in \
     "UOS_LIB_LIBUCONTEXT:$BUILD_DIR/xpacks/@xpack-3rd-party/libucontext" \
