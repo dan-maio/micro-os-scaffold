@@ -23,6 +23,9 @@
  *                          spinlock on the RP2040/RP2350); plain std::atomic
  *                          too, except on the RP2040/RP2350, whose exclusive
  *                          monitor does not serialise the two cores
+ *   09 - Speed-up          the same CPU-bound work on one core, then on every
+ *                          core at once: at least 0.8 x OS_NCPU faster on the
+ *                          board (reported only under QEMU)
  *
  * Spinlocks and atomic_add () use the board's method, named in the report.
  *
@@ -45,6 +48,7 @@ void suite_scheduler (mt::suite& ts);
 void suite_cross_core (mt::suite& ts);
 void suite_queue_stress (mt::suite& ts);
 void suite_atomics (mt::suite& ts);
+void suite_speedup (mt::suite& ts);
 
 mt::runner tr;
 
@@ -65,6 +69,7 @@ os_main (int, char*[])
   tr.add_suite ("06 - Cross-core sync", suite_cross_core);
   tr.add_suite ("07 - Queue stress", suite_queue_stress);
   tr.add_suite ("08 - Atomic read-modify-write", suite_atomics);
+  tr.add_suite ("09 - Speed-up", suite_speedup);
   return mtp_board::finish (tr.run_suites ());
 }
 

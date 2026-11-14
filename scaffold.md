@@ -1352,7 +1352,10 @@ Lessons from that integration, now built into the scaffolder:
 - QEMU drops semihosting `SYS_WRITE` on handle 1: the support uses `SYS_WRITE0`;
 - the build has no exceptions: tests use `expect`, never `require`;
 - µTest++ compares `const char*` as C strings: compare addresses as `std::uintptr_t`
-  (a pointer comparison once read the heap as a string and took six minutes on the board).
+  (a pointer comparison once read the heap as a string and took six minutes on the board);
+- newlib's stdio needs `_write`, `_read`, `_close`, `_fstat`, `_isatty`, `_lseek`: the
+  AArch64 port defines them (`src/handlers.cpp`), the AArch32 port does not, so the board
+  support provides weak ones for console model 1 (`_write` to the same console).
 
 ## 13.2 What the scaffolder adds
 
@@ -1447,6 +1450,7 @@ to join the scheduler:
 | 06 Cross-core sync | semaphore ping-pong, ordered message queue, event flags, a 200-round barrier |
 | 07 Queue stress | one producer per core into one bounded queue |
 | 08 Atomic read-modify-write | `mtp_board::atomic_add ()` from every core; `std::atomic` where the hardware supports it |
+| 09 Speed-up | the same CPU-bound work on one core, then on every core at once; at least 0.8 x `OS_NCPU` faster on the board (reported only under QEMU) |
 
 Cross-core read-modify-write goes through each board's own method,
 `mtp_board::sync_method ()`, printed at the start of the report:
@@ -1454,7 +1458,7 @@ Cross-core read-modify-write goes through each board's own method,
 | Board | Method | Instructions |
 | --- | --- | --- |
 | Raspberry Pi (AArch64) | exclusive monitor | `LDAXR`/`STLXR`, inline (`no-outline-atomics`: GCC would otherwise call libgcc's `__aarch64_ldadd4_acq_rel`, which picks LSE or LDAXR at run time) |
-| AArch32 | exclusive monitor | `LDREX`/`STREX` |
+| AArch32 (ARMv8 core) | exclusive monitor | `LDAEX`/`STLEX` for `atomic_add ()` and the spinlock, `LDREX`/`STREX` for plain `std::atomic` |
 | RP2040/RP2350 | SIO hardware spinlocks | 8..30 for `mtp_board::spinlock`, 31 for `atomic_add ()`; 0 is the kernel's, 1 the console's, 2-3 `smp-mat-test`'s |
 
 On the RP2350 `LDREX`/`STREX` exclude only the same core: `std::atomic::fetch_add`
@@ -1468,12 +1472,25 @@ Two port differences the tests respect:
   may stand still, so a test bounds such waits by iterations, never by `sysclock`.
 - `scheduler::critical_section` is per core on both: another core keeps running.
 
+Suite 09 answers "is it really SMP" with a number. A work unit (integer arithmetic in
+registers: no shared memory, no lock, no kernel call) is calibrated to at least 100 ms
+on one core; one thread pinned to one core does `OS_NCPU` units, then one thread per
+core does one unit each, at once. The ratio of the two times is the speed-up: about
+`OS_NCPU` when the cores really run in parallel, about 1 when they do not. Other
+suites prove parallelism by construction: a pinned thread reads its core from MPIDR;
+core 1 runs while core 0 holds its scheduler lock, or spins with its interrupts masked
+on the kernel lock.
+
 ## 13.6 Measured
 
 | Board | Test | Result |
 | --- | --- | --- |
 | Raspberry Pi Zero 2 W, AArch64, 4 cores | `mtp-example` | 27/27, board |
 | | `mtp-smp` (LDAXR/STLXR) | 76/76, board, 49 s |
+| Raspberry Pi Zero 2 W, AArch32, 4 cores | `mtp-example` | 27/27, board |
+| | `mtp-smp` (LDAEX/STLEX) | 76/76, board, 56 s |
+| Raspberry Pi 4 B, AArch64, 4 cores (A72) | `mtp-example` | 27/27, board |
+| | `mtp-smp` with 09 Speed-up | 78/78, board, 37 s; **3.86x** (1 core 718 ms, 4 cores 186 ms); 3.72x under QEMU |
 | Raspberry Pi Pico 2, RP2350, 2 cores | `mtp-example` | 27/27, board |
 | | `mtp-smp` (SIO) | 69/69, board, 7 s |
 | ST NUCLEO-F411RE, Cortex-M4, 1 core | `mtp-example` | 24/24, board (ST-LINK/V2.1), 11 s |
@@ -1698,7 +1715,9 @@ node /home/dan/Work/micro-os-scaffold/bin/scaffold.js \
   untracked files. A test that is only present locally will be scaffolded,
   but it will not survive a clean checkout. Commit tests that matter.
 - **µTest++ coverage.** `--micro-test-plus` was verified on the Zero 2 W
-  (AArch64), the Pico 2 (RP2350) and the NUCLEO-F411 (Cortex-M4), on the boards. The other ports' boards
+  and Pi 4 B (AArch64), the Zero 2 W (AArch32), the Pico 2 (RP2350) and the
+  NUCLEO-F411 (Cortex-M4), on the boards. Suite 09 (speed-up) was added after the
+  Zero 2 W, Pico 2 runs and has been run on the Pi 4 B only. The other ports' boards
   are integrated by the same rules but not yet run. Probe selection by serial
   number is a wrapper (13.7), not yet an option of the runner.
 

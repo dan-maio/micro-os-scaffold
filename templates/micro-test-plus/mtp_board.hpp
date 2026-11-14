@@ -44,7 +44,7 @@ namespace mtp_board
   /// Send what is pending to the host now.
   void flush () noexcept;
 
-#if defined(MTP_CONSOLE) && MTP_CONSOLE == 2
+#if defined(MTP_CONSOLE) && (MTP_CONSOLE == 1 || MTP_CONSOLE == 2)
   /// Used by this support's _write (): the console for stdout.
   void emit_for_write (const char* data, std::size_t size) noexcept;
 #endif

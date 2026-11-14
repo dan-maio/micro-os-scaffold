@@ -166,7 +166,7 @@ namespace mtp_board
     }
   } // namespace
 
-#if MTP_CONSOLE == 2
+#if MTP_CONSOLE == 1 || MTP_CONSOLE == 2
   void
   emit_for_write (const char* data, std::size_t size) noexcept
   {
@@ -518,6 +518,8 @@ namespace mtp_board
     return "SIO hardware spinlock";
 #elif defined(__aarch64__)
     return "LDAXR/STLXR exclusive monitor";
+#elif defined(__arm__) && defined(__ARM_ARCH) && __ARM_ARCH >= 8
+    return "LDAEX/STLEX exclusive monitor"; // ARMv8 AArch32: acquire/release forms
 #elif defined(__arm__)
     return "LDREX/STREX exclusive monitor";
 #else
@@ -570,6 +572,73 @@ _write (int, const char* data, int size)
       mtp_board::emit_for_write (data, static_cast<std::size_t> (size));
     }
   return size;
+}
+#endif
+
+#if MTP_CONSOLE == 1
+// newlib's stdio needs these system calls. The AArch64 port has them
+// (src/handlers.cpp); the AArch32 port has none, and µTest++ then does not
+// link. Weak, so a port that has them keeps its own. stdout and stderr are
+// replaced by start (), so only a write that bypasses them lands here: it
+// goes to the same console.
+#include <sys/stat.h>
+
+extern "C"
+{
+  __attribute__ ((weak)) int
+  _write (int fd, const char* data, int size)
+  {
+    if (fd != 1 && fd != 2)
+      {
+        errno = EBADF;
+        return -1;
+      }
+    if (size > 0)
+      {
+        mtp_board::emit_for_write (data, static_cast<std::size_t> (size));
+      }
+    return size;
+  }
+
+  __attribute__ ((weak)) int
+  _read (int, char*, int)
+  {
+    errno = ENOSYS;
+    return -1;
+  }
+
+  __attribute__ ((weak)) int
+  _close (int)
+  {
+    errno = ENOSYS;
+    return -1;
+  }
+
+  __attribute__ ((weak)) int
+  _fstat (int fd, struct stat* st)
+  {
+    if (fd < 0 || fd > 2 || st == nullptr)
+      {
+        errno = EBADF;
+        return -1;
+      }
+    std::memset (st, 0, sizeof (*st));
+    st->st_mode = S_IFCHR; // a console: line buffered
+    return 0;
+  }
+
+  __attribute__ ((weak)) int
+  _isatty (int fd)
+  {
+    return fd >= 0 && fd <= 2 ? 1 : 0;
+  }
+
+  __attribute__ ((weak)) int
+  _lseek (int, int, int)
+  {
+    errno = ESPIPE;
+    return -1;
+  }
 }
 #endif
 
