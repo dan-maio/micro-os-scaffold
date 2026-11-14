@@ -32,7 +32,8 @@ created; later runs read that JSON as the source of truth and refresh it.
 Subcommands:
   discover [--source <dir>]      list architectures, boards and tests in the source workspace
   list [destination]             list selected boards/tests from an existing scaffold.json
-  build [destination]            run the verification builds recorded in scaffold.json
+  build [destination] [--clean]  run the verification builds recorded in scaffold.json
+  clean [destination]            remove compiled build trees (tests/build, target, zig-out)
   scaffold [destination]         explicit form of the default action
 
 Options:
@@ -53,6 +54,7 @@ Options:
   --select <list>       architecture[.board[.test]] tokens, ids, or 'all'
                         (e.g. 2, 2.3, 2.3.1; default: previous, else one board per port)
   --config <name>       build only this configuration (repeatable)
+  --clean               remove build output directories after verification build
   --no-build            scaffold only, do not run the verification build
   --list-only           discover and write scaffold.json, do not copy files
   --yes                 non-interactive: accept the default selection
@@ -78,6 +80,7 @@ function parseArgs(argv) {
     select: null,
     configurations: [],
     build: true,
+    clean: false,
     listOnly: false,
     yes: false,
     branch: null,
@@ -89,7 +92,7 @@ function parseArgs(argv) {
     version: false,
     help: false,
   };
-  const knownSubcommands = new Set(['discover', 'list', 'build', 'scaffold']);
+  const knownSubcommands = new Set(['discover', 'list', 'build', 'clean', 'scaffold']);
   const positional = [];
   const modes = new Set();
   let index = 0;
@@ -111,6 +114,7 @@ function parseArgs(argv) {
     else if (arg === '--dest') result.destination = nextValue('--dest');
     else if (arg === '--no-build') result.build = false;
     else if (arg === '--build') result.build = true;
+    else if (arg === '--clean') result.clean = true;
     else if (arg === '--list-only') result.listOnly = true;
     else if (arg === '--yes' || arg === '-y') result.yes = true;
     else if (arg === '--micro-test-plus') result.microTestPlus = nextValue('--micro-test-plus');
@@ -324,7 +328,7 @@ function commandBuild(options) {
     destination,
     configurations: options.configurations,
   });
-  if (config.lean) cleanLeanOutputs(config, destination);
+  if (options.clean) cleanLeanOutputs(config, destination);
   saveConfig(destination, config.lean ? slimConfig(config) : config);
   if (config.lean) {
     writeFile(path.join(destination, 'README.md'), leanReadme(config));
@@ -332,6 +336,16 @@ function commandBuild(options) {
     refreshDocs(config, destination);
   }
   return outcome.status === 'pass' ? 0 : 1;
+}
+
+function commandClean(options) {
+  const destination = resolveDestination(options.destination);
+  const config = loadConfig(destination);
+  if (!config) throw new Error(`No scaffold.json in ${destination}; run the scaffolder first.`);
+  cleanLeanOutputs(config, destination);
+  saveConfig(destination, config.lean ? slimConfig(config) : config);
+  console.log(`Cleaned build outputs in ${destination}`);
+  return 0;
 }
 
 async function commandScaffold(options) {
@@ -491,6 +505,7 @@ async function main() {
     if (options.subcommand === 'discover') return await commandDiscover(options);
     if (options.subcommand === 'list') return commandList(options);
     if (options.subcommand === 'build') return commandBuild(options);
+    if (options.subcommand === 'clean') return commandClean(options);
     return await commandScaffold(options);
   } catch (error) {
     console.error(`error: ${error.message}`);

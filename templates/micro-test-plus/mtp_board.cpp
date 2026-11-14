@@ -444,8 +444,11 @@ namespace mtp_board
   namespace
   {
     constexpr std::uintptr_t sio_spinlock0 = 0xD0000100u;
-    unsigned g_next_slot = 8;              // spinlock objects: 8 .. 30
+    constexpr unsigned first_slot = 8;     // spinlock objects: 8 .. 30
     constexpr unsigned atomic_slot = 31;   // atomic_add ()
+    constexpr std::uint32_t valid_slots_mask
+        = ((1u << atomic_slot) - 1u) & ~((1u << first_slot) - 1u);
+    std::uint32_t g_used_slots = 0;
 
     inline volatile std::uint32_t&
     sio_lock (unsigned slot) noexcept
@@ -458,17 +461,21 @@ namespace mtp_board
   spinlock::spinlock () noexcept
   {
     os::rtos::interrupts::critical_section ics;
-    slot_ = g_next_slot < atomic_slot ? g_next_slot++ : atomic_slot - 1;
+    const std::uint32_t free_mask = valid_slots_mask & ~g_used_slots;
+    if (free_mask == 0)
+      {
+        __builtin_trap (); // Never silently alias hardware spinlock slots
+      }
+    slot_ = static_cast<unsigned> (__builtin_ctz (free_mask));
+    g_used_slots |= (1u << slot_);
     sio_lock (slot_) = 1; // free
   }
 
   spinlock::~spinlock () noexcept
   {
     os::rtos::interrupts::critical_section ics;
-    if (slot_ + 1 == g_next_slot)
-      {
-        --g_next_slot;
-      }
+    sio_lock (slot_) = 1;
+    g_used_slots &= ~(1u << slot_);
   }
 
   bool
@@ -671,11 +678,13 @@ static_assert (sizeof (std::size_t) == sizeof (unsigned int),
 namespace
 {
   // Copy fmt into buf without the 'z' of each conversion; nullptr if fmt
-  // has none (the common case) or does not fit, so the caller uses fmt.
+  // has none (the common case). If fmt overflows buf after rewriting a '%z'
+  // conversion, buf is cleanly truncated at a conversion boundary so
+  // newlib-nano never sees an unconsumed '%zu' argument in va_list.
   const char*
   without_z (const char* fmt, char* buf, std::size_t size) noexcept
   {
-    if (fmt == nullptr || std::strchr (fmt, 'z') == nullptr)
+    if (fmt == nullptr || size == 0 || std::strchr (fmt, 'z') == nullptr)
       {
         return nullptr;
       }
@@ -683,31 +692,42 @@ namespace
     bool changed = false;
     for (const char* p = fmt; *p != '\0'; ++p)
       {
-        if (o + 1 >= size)
-          {
-            return nullptr;
-          }
-        buf[o++] = *p;
         if (*p != '%')
           {
+            if (o + 1 >= size)
+              {
+                buf[o] = '\0';
+                return changed ? buf : nullptr;
+              }
+            buf[o++] = *p;
             continue;
           }
         if (p[1] == '%')
           {
-            if (o + 1 >= size)
+            if (o + 2 >= size)
               {
-                return nullptr;
+                buf[o] = '\0';
+                return changed ? buf : nullptr;
               }
-            buf[o++] = *++p; // "%%" is a literal '%', not a conversion
+            buf[o++] = '%';
+            buf[o++] = '%'; // "%%" is a literal '%', not a conversion
+            ++p;
             continue;
           }
         // Flags, width, precision, then the length modifier.
-        ++p;
+        const std::size_t spec_start = o;
+        if (o + 1 >= size)
+          {
+            buf[o] = '\0';
+            return changed ? buf : nullptr;
+          }
+        buf[o++] = *p++;
         while (*p != '\0' && std::strchr ("-+ #0123456789.*", *p) != nullptr)
           {
             if (o + 1 >= size)
               {
-                return nullptr;
+                buf[spec_start] = '\0';
+                return changed ? buf : nullptr;
               }
             buf[o++] = *p++;
           }
@@ -718,11 +738,13 @@ namespace
           }
         if (*p == '\0')
           {
+            buf[spec_start] = '\0';
             break;
           }
         if (o + 1 >= size)
           {
-            return nullptr;
+            buf[spec_start] = '\0';
+            return changed ? buf : nullptr;
           }
         buf[o++] = *p;
       }
@@ -730,7 +752,7 @@ namespace
     return changed ? buf : nullptr;
   }
 
-  constexpr std::size_t fmt_size = 256;
+  constexpr std::size_t fmt_size = 128;
 } // namespace
 
 #define MTP_FIX_FMT(fmt)                                                      \

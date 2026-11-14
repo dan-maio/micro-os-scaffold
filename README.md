@@ -726,8 +726,9 @@ cd ../ws-pico2/tests && ./test.sh cortexm-pico2-cmake-gcc-debug mtp-example mtp-
 
 What it adds: the framework in `third_party/micro-test-plus/` (unchanged), the board
 support in `<port>/test/mtp/`, a µTest++ block in each board's `tests.cmake` that links
-it to every `mtp-*` test, the starter test `mtp-example`, and, on boards whose other
-cores it can start, `mtp-smp`.
+it to every `mtp-*` test, the starter test `mtp-example`, on boards whose other cores it
+can start, `mtp-smp`, and on boards with the GENET v5 + lwIP Ethernet stack (`test/boards/<board>/net/src/`),
+`mtp-eth-net`.
 
 - **The runtime rule.** A board gets µTest++ only if its boot runs the static
   constructors, its linker script keeps `.init_array` and defines
@@ -741,14 +742,22 @@ cores it can start, `mtp-smp`.
 - **`mtp-smp`** checks affinity, critical sections, spinlocks, mutexes (with priority
   inheritance across cores), the scheduler, cross-core sync, a queue stress and atomic
   read-modify-write on every core, and measures the speed-up of the same work on every
-  core against one (3.86x on the Pi 4 B). Spinlocks and `atomic_add ()` use the board's method:
-  `LDAXR`/`STLXR` on the Raspberry Pi, the SIO hardware spinlocks on the RP2040/RP2350,
-  whose `LDREX`/`STREX` do not exclude the other core.
-- **Verified on the boards:** Zero 2 W AArch64 27 + 76 checks, Zero 2 W AArch32 27 + 76,
-  Pi 4 B 27 + 78 (with the speed-up), Pico 2 (RP2350) 27 + 69, NUCLEO-F411 (Cortex-M4) 24,
-  WeAct F411CE 24, plus 52 in a board-specific SPI-flash test
-  (`examples/cortexm-weactf411-mtp-spi-flash/`); the same flash is also tested by five
-  classic tests without µTest++ (`examples/cortexm-weactf411-flash-battery/`), 5/5.
+  core against one (3.86x on the Pi 4 B and Zero 2 W AArch64, 3.91x on the Zero 2 W
+  AArch32, 1.77x on the 2-core Pico 2). Spinlocks and `atomic_add ()` use the board's
+  method: `LDAXR`/`STLXR` (`LDAEX`/`STLEX` on AArch32) on the Raspberry Pi, the SIO
+  hardware spinlocks on the RP2040/RP2350, whose `LDREX`/`STREX` do not exclude the
+  other core.
+- **`mtp-eth-net`** (on boards with the GENET v5 + BCM54213PE + lwIP stack, such as the
+  Pi 4 B) checks SMP core release, MAC/PHY/ring initialisation, auto-negotiation and
+  DHCPv4 lease acquisition, 56 B and 256 B ICMP echo rounds to the gateway, and FAT32
+  SD card telemetry (`tests/MTPNET.LOG`), skipping cleanly under QEMU.
+- **Verified on the boards:** Zero 2 W AArch64 27 + 78 checks (3.86x speed-up),
+  Zero 2 W AArch32 27 + 78 (3.91x speed-up), Pi 4 B 27 + 78 (3.86x speed-up) + 25 in
+  `mtp-eth-net` (plus classic `eth-net`), Pico 2 (RP2350) 27 + 71 (1.77x speed-up on
+  2 cores), NUCLEO-F411 (Cortex-M4) 24, WeAct F411CE 24, plus 52 in a board-specific
+  SPI-flash test (`examples/cortexm-weactf411-mtp-spi-flash/`); the same flash is also
+  tested by five classic tests without µTest++
+  (`examples/cortexm-weactf411-flash-battery/`), 5/5.
 
 `scaffold.md`, chapter 13, explains the integration, analysed from the hand-made one in
 `micro-os-scaffold-workspace-rpi-zero-2w`, and how to run with two probes on one host.

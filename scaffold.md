@@ -1366,6 +1366,7 @@ Lessons from that integration, now built into the scaffolder:
 | A µTest++ block | at the end of `<port>/test/<board>/tests.cmake`, plus one `^mtp-` branch in its library hook |
 | `mtp-example` | every integrated board: "00 - Cores" (if the cores can be released), "01 - Runtime", "02 - Basics" |
 | `mtp-smp` | the boards whose other cores the support can start (13.5) |
+| `mtp-eth-net` | the boards with the GENET v5 + BCM54213PE + lwIP Ethernet stack in `test/boards/<board>/net/src/` (`<platform>-eth`, `BOARD_TEST_NEED_DEVICES`) |
 | Selection | the starter tests are added to the configuration and to `tests/scripts/selected-tests.txt` |
 | Documentation | a "µTest++ tests" section in the workspace `README.md` |
 
@@ -1485,18 +1486,20 @@ on the kernel lock.
 
 | Board | Test | Result |
 | --- | --- | --- |
-| Raspberry Pi Zero 2 W, AArch64, 4 cores | `mtp-example` | 27/27, board |
-| | `mtp-smp` (LDAXR/STLXR) | 76/76, board, 49 s |
-| Raspberry Pi Zero 2 W, AArch32, 4 cores | `mtp-example` | 27/27, board |
-| | `mtp-smp` (LDAEX/STLEX) | 76/76, board, 56 s |
-| Raspberry Pi 4 B, AArch64, 4 cores (A72) | `mtp-example` | 27/27, board |
-| | `mtp-smp` with 09 Speed-up | 78/78, board, 37 s; **3.86x** (1 core 718 ms, 4 cores 186 ms); 3.72x under QEMU |
-| Raspberry Pi Pico 2, RP2350, 2 cores | `mtp-example` | 27/27, board |
-| | `mtp-smp` (SIO) | 69/69, board, 7 s |
-| ST NUCLEO-F411RE, Cortex-M4, 1 core | `mtp-example` | 24/24, board (ST-LINK/V2.1), 11 s |
-| WeAct F411CE, Cortex-M4, 1 core | `mtp-example` | 24/24, board (WCH-Link), 22 s |
-| | `mtp-spi-flash` (board-specific, 13.8) | 52/52, board, 19 s; W25Q128: polled 1406, IRQ 759, DMA 2188 KiB/s |
-| | the same flash as 5 classic tests, no µTest++ (13.8) | 5/5, board, 4-6 s each |
+| Raspberry Pi Zero 2 W, AArch64, 4 cores (A53) | `mtp-example` | 27/27, board (110 ms on target) |
+| | `mtp-smp` (LDAXR/STLXR) with 09 Speed-up | 78/78, board, 50 s; **3.86x** (1 core 672 ms, 4 cores 174 ms) |
+| Raspberry Pi Zero 2 W, AArch32, 4 cores (A53) | `mtp-example` | 27/27, board (110 ms on target) |
+| | `mtp-smp` (LDAEX/STLEX) with 09 Speed-up | 78/78, board, 55 s; **3.91x** (1 core 673 ms, 4 cores 172 ms) |
+| Raspberry Pi 4 B, AArch64, 4 cores (A72) | `mtp-example` | 27/27, board (102 ms on target) |
+| | `mtp-smp` (LDAXR/STLXR) with 09 Speed-up | 78/78, board, 38 s; **3.86x** (1 core 718 ms, 4 cores 186 ms); 3.72x under QEMU |
+| | `mtp-eth-net` (GENET v5 + BCM54213PE + lwIP) | 25/25, board, 38 s (10.1 s on target; 1000 Mbit/s full duplex, DHCP lease, 4/4 56 B + 2/2 256 B ICMP replies, 0 DMA errors, `tests/MTPNET.LOG` on SD card) |
+| | `eth-net` (classic GENET v5 + lwIP, no µTest++) | PASS, board, 24 s (`tests/ETHNET.LOG` on SD card) |
+| Raspberry Pi Pico 2, RP2350, 2 cores (M33) | `mtp-example` | 27/27, board, 8 s (95 ms on target) |
+| | `mtp-smp` (SIO) with 09 Speed-up | 71/71, board, 8 s (1735 ms on target); **1.77x** (1 core 450 ms, 2 cores 254 ms) |
+| ST NUCLEO-F411RE, Cortex-M4, 1 core | `mtp-example` | 24/24, board (ST-LINK/V2-1), 11 s (115 ms on target) |
+| WeAct F411CE, Cortex-M4, 1 core | `mtp-example` | 24/24, board (WCH-Link), 20 s (90 ms on target) |
+| | `mtp-spi-flash` (board-specific, 13.8) | 52/52, board, 24 s (3988 ms on target); W25Q128: polled 1398, IRQ 759, DMA 2206 KiB/s |
+| | the same flash as 5 classic tests, no µTest++ (13.8) | 5/5, board, 10-13 s each |
 
 ## 13.7 Running, and two probes on one host
 
@@ -1549,6 +1552,15 @@ check on the UART, `RESULT: PASS|FAIL` through `hw_result`, and one shared heade
 in the board's test `include/` (so the board's other tests link nothing new). The trade-off:
 no framework and one CTest case per area, but a plain report instead of TAP, and only the
 verdict reaches the runner's log; the per-check lines are on the UART.
+
+On boards that carry the GENET v5 + BCM54213PE + lwIP Ethernet stack in
+`test/boards/<board>/net/src/` (such as the Raspberry Pi 4 B), the scaffolder also adds
+`mtp-eth-net` (`templates/micro-test-plus/mtp-eth-net/`), links it against
+`uos-micro-test-plus` and `<platform>-eth`, and adds it to `BOARD_TEST_NEED_DEVICES`. Its five
+suites (10 test cases, 25 checks) verify SMP core release, GENET v5 MAC/PHY/ring initialisation
+(`0x600d84a2` BCM54213PE), Gigabit link auto-negotiation and lwIP DHCPv4 lease acquisition,
+56 B and 256 B ICMP echo rounds to the gateway with zero DMA errors, and FAT32 SD card logging
+(`tests/MTPNET.LOG`), while skipping cleanly under QEMU (`!HW_BUILD`).
 
 ---
 
@@ -1742,10 +1754,11 @@ node /home/dan/Work/micro-os-scaffold/bin/scaffold.js \
   but it will not survive a clean checkout. Commit tests that matter.
 - **µTest++ coverage.** `--micro-test-plus` was verified on the Zero 2 W
   and Pi 4 B (AArch64), the Zero 2 W (AArch32), the Pico 2 (RP2350), the
-  NUCLEO-F411 and the WeAct F411CE (Cortex-M4), on the boards. Suite 09 (speed-up) was added after the
-  Zero 2 W, Pico 2 runs and has been run on the Pi 4 B only. The other ports' boards
-  are integrated by the same rules but not yet run. Probe selection by serial
-  number is a wrapper (13.7), not yet an option of the runner.
+  NUCLEO-F411 and the WeAct F411CE (Cortex-M4), on the boards, including
+  Suite 09 (speed-up) across all four SMP configurations and `mtp-eth-net` on
+  the Pi 4 B. The other ports' boards are integrated by the same rules but not
+  yet run. Probe selection by serial number is a wrapper (13.7), not yet an
+  option of the runner.
 
 ---
 

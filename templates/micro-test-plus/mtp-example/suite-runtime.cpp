@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <unistd.h>
 #include <vector>
 
@@ -87,6 +88,8 @@ suite_runtime (mt::suite& ts)
     t.expect (mt::ne (static_cast<void*> (g_by_constructor), nullptr))
         << "a constructor could allocate (the heap was set up before them)";
     t.expect (in_heap (g_by_constructor->data ())) << "inside the heap region";
+    delete g_by_constructor;
+    g_by_constructor = nullptr;
   });
 
   ts.test ("malloc, new and calloc inside the linker's heap", [] (auto& t) {
@@ -146,7 +149,11 @@ suite_runtime (mt::suite& ts)
         mt::le (at, reinterpret_cast<std::uintptr_t> (&_Heap_Limit))))
         << "its break lies inside _Heap_Begin .. _Heap_Limit";
     errno = 0;
-    const auto past = static_cast<std::ptrdiff_t> (&_Heap_Limit - p) + 4096;
+    const auto remaining = static_cast<std::size_t> (&_Heap_Limit - p);
+    const auto max_diff = static_cast<std::size_t> (
+        std::numeric_limits<std::ptrdiff_t>::max () - 4096);
+    const auto past = static_cast<std::ptrdiff_t> (
+        (remaining <= max_diff ? remaining : max_diff) + 4096);
     t.expect (mt::eq (sbrk (past), reinterpret_cast<void*> (-1)))
         << "it cannot grow past _Heap_Limit";
     t.expect (mt::eq (sbrk (0), top)) << "and a refused request moves nothing";
