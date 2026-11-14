@@ -1373,6 +1373,7 @@ The block defines what the board support needs to know:
 | `MTP_CONSOLE=1\|2\|3` | the console model (13.4) |
 | `MTP_HAS_SMP_BOOT=0\|1\|2` | how to release the other cores: none, the port's test-smp-boot helpers, or `multicore::launch_core1` (RP2040/RP2350) |
 | `MTP_NANO_PRINTF=1` | the port links newlib-nano (13.4) |
+| `MTP_UART_INIT=1` | the board's start-up leaves the UART off and its tests switch it on (13.4) |
 | `MTP_CARRY_STARTUP=1` | the tests carry their own start-up (`mtp_startup.hpp`) |
 | `MTP_HOSTED` | POSIX native: no linker heap |
 
@@ -1411,6 +1412,14 @@ Cortex-M links newlib-nano, whose printf has no `z` modifier: µTest++'s `%zu` p
 printf family through wrappers (`-Wl,--wrap=printf,...`) that drop the `z` (`size_t`
 is `unsigned int` there), and links `-u _printf_float` for the `approx ()` messages.
 The framework stays unchanged.
+
+The UART must be on before the first write. The RP2040/RP2350 glue switches it on at
+start-up; the STM32 boards (nucleof411, weactf411, weactf412) leave USART2 off and each
+test calls `uart::init (board::UART_BAUD)`. The scaffolder recognises those boards
+(`board.hpp` defines `UART_BAUD`, `uart.hpp` declares `init (std::uint32_t)`) and sets
+`MTP_UART_INIT=1`, so that `mtp_board::start ()` does the same. Without it the first
+`uart::write ()` waits for TXE on a disabled USART for ever: the board boots to `main ()`
+and then prints nothing.
 
 ## 13.5 SMP tests: `mtp-smp`
 
@@ -1467,6 +1476,7 @@ Two port differences the tests respect:
 | | `mtp-smp` (LDAXR/STLXR) | 76/76, board, 49 s |
 | Raspberry Pi Pico 2, RP2350, 2 cores | `mtp-example` | 27/27, board |
 | | `mtp-smp` (SIO) | 69/69, board, 7 s |
+| ST NUCLEO-F411RE, Cortex-M4, 1 core | `mtp-example` | 24/24, board (ST-LINK/V2.1), 11 s |
 
 ## 13.7 Running, and two probes on one host
 
@@ -1688,7 +1698,7 @@ node /home/dan/Work/micro-os-scaffold/bin/scaffold.js \
   untracked files. A test that is only present locally will be scaffolded,
   but it will not survive a clean checkout. Commit tests that matter.
 - **µTest++ coverage.** `--micro-test-plus` was verified on the Zero 2 W
-  (AArch64) and the Pico 2 (RP2350), on the boards. The other ports' boards
+  (AArch64), the Pico 2 (RP2350) and the NUCLEO-F411 (Cortex-M4), on the boards. The other ports' boards
   are integrated by the same rules but not yet run. Probe selection by serial
   number is a wrapper (13.7), not yet an option of the runner.
 

@@ -736,14 +736,15 @@ cores it can start, `mtp-smp`.
   overrides); `mtp-example` checks it again on the target.
 - **Console models.** AArch32/AArch64: a stdout stream to the UART and to semihosting
   `SYS_WRITE0`, batched; Cortex-M: a strong `_write ()`, with the newlib-nano printf
-  wrapped so that µTest++'s `%zu` prints; POSIX: the host's stdout.
+  wrapped so that µTest++'s `%zu` prints, and the UART switched on first where the board
+  leaves that to its tests (the STM32 boards); POSIX: the host's stdout.
 - **`mtp-smp`** checks affinity, critical sections, spinlocks, mutexes (with priority
   inheritance across cores), the scheduler, cross-core sync, a queue stress and atomic
   read-modify-write on every core. Spinlocks and `atomic_add ()` use the board's method:
   `LDAXR`/`STLXR` on the Raspberry Pi, the SIO hardware spinlocks on the RP2040/RP2350,
   whose `LDREX`/`STREX` do not exclude the other core.
 - **Verified on the boards:** Zero 2 W (AArch64, 4 cores) 27 + 76 checks, Pico 2 (RP2350,
-  2 cores) 27 + 69 checks.
+  2 cores) 27 + 69 checks, NUCLEO-F411 (Cortex-M4, 1 core) 24 checks.
 
 `scaffold.md`, chapter 13, explains the integration, analysed from the hand-made one in
 `micro-os-scaffold-workspace-rpi-zero-2w`, and how to run with two probes on one host.
@@ -769,5 +770,5 @@ project is deselected it is left on disk but is no longer listed in
 - Lean workspaces do not contain build outputs; `tests/test.sh` builds before it runs.
 - Re-running the scaffolder on a workspace removes test directories that are not selected,
   including ones added locally. Copy new work to the source repository first.
-- µTest++ was run on the Zero 2 W and the Pico 2; other boards are integrated by the same
-  rules but not yet run on hardware.
+- µTest++ was run on the Zero 2 W, the Pico 2 and the NUCLEO-F411; other boards are
+  integrated by the same rules but not yet run on hardware.

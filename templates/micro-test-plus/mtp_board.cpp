@@ -16,6 +16,9 @@
 #include <uart.hpp>
 #elif MTP_CONSOLE == 2
 #include <hw_result.hpp>
+#if defined(MTP_UART_INIT) && MTP_UART_INIT
+#include <board.hpp>
+#endif
 #if __has_include(<bsp/uart.hpp>)
 #include <bsp/uart.hpp>
 #else
@@ -196,6 +199,10 @@ namespace mtp_board
         stderr = stream;
       }
 #elif MTP_CONSOLE == 2
+#if defined(MTP_UART_INIT) && MTP_UART_INIT
+    // This board's start-up leaves the UART off; its tests switch it on.
+    uart::init (board::UART_BAUD);
+#endif
     // newlib's stdout reaches _write () below; line by line is enough.
     setvbuf (stdout, nullptr, _IOLBF, 0);
 #endif
