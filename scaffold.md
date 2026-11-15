@@ -940,18 +940,20 @@ node /path/to/micro-os-scaffold/bin/scaffold.js \
 | `node bin/scaffold.js [dest]` | Discover, write `scaffold.json`, copy, prune, build. |
 | `node bin/scaffold.js discover [--source dir]` | List architectures, boards and tests; write nothing. |
 | `node bin/scaffold.js list [dest]` | Show the selected board/tests, tools and results. |
-| `node bin/scaffold.js build [dest]` | Run the build verification recorded in `scaffold.json`. |
+| `node bin/scaffold.js build [dest] [--clean]` | Run the build verification recorded in `scaffold.json` (`--clean`: remove the build trees afterwards). |
+| `node bin/scaffold.js clean [dest]` | Remove the compiled build trees (`tests/build`, `target`, `zig-out`). |
 | `node bin/scaffold.js scaffold [dest]` | Explicit form of the default action. |
 
 ## 11.5 Options
 
 | Option | Meaning |
 | --- | --- |
-| `--source <dir\|urls>` | Source workspace: a folder holding the sibling repositories, or a comma separated list of git URLs cloned as siblings (see 11.8). |
+| `--source <dir\|urls>` | Source workspace: a folder holding the sibling repositories, or a comma separated list of git URLs cloned as siblings (see 11.6). |
 | `--branch <name>` | Branch to clone when `--source` is a git URL (`url#branch` sets it per repository). |
 | `--select <list>` | `architecture[.board[.test]]`, names, ids, or `all`. |
 | `--config <name>` | Build only this configuration (repeatable). |
 | `--no-build` | Scaffold without the verification build. |
+| `--clean` | Remove the build output directories after the verification build. |
 | `--list-only` | Discover and write `scaffold.json`, copy nothing. |
 | `--yes` | Non-interactive; use the default selection. |
 | `--lean` | Complete kernel plus only the files the selected test needs to build and run (default). |
@@ -983,7 +985,7 @@ The strictest layout option given wins (`--lean` over `--minimal` over
 `--full`). A re-run without a layout option keeps the layout recorded in
 `scaffold.json`.
 
-## 11.8 Scaffolding from git repositories
+## 11.6 Scaffolding from git repositories
 
 The source workspace does not have to exist locally. Give the repositories
 (the kernel and the port you need) as git URLs; they are cloned shallowly as
@@ -1002,7 +1004,7 @@ partial clone prefer names (`cortexm-pico2.smp-mat-test-ram`) or run
 `discover` with the same `--source` first. A later run updates the cached
 clones; the URLs and the branch are recorded in `scaffold.json`.
 
-## 11.6 Hardware test flow
+## 11.7 Hardware test flow
 
 The general flow is:
 
@@ -1019,7 +1021,7 @@ output. To skip the reset:
 UOS_SKIP_PRE_TEST=1 ./run.sh -c riscv-visionfive2-lite-cmake-gcc-debug 2.4.17
 ```
 
-## 11.7 Native flow
+## 11.8 Native flow
 
 ```bash
 ./run.sh -c native-cmake-sys-debug 5.1.1

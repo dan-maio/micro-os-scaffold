@@ -119,7 +119,8 @@ configuration and runs only those tests by default.
 | `node bin/scaffold.js [dest] [options]` | Discover, write `scaffold.json`, copy the layout, then build. |
 | `node bin/scaffold.js discover [--source dir]` | Scan and list architectures, boards and tests; no files are written. |
 | `node bin/scaffold.js list [dest]` | Show selected boards/tests, tools and build results from an existing `scaffold.json`. |
-| `node bin/scaffold.js build [dest]` | Run the verification builds recorded in `scaffold.json` only. |
+| `node bin/scaffold.js build [dest] [--clean]` | Run the verification builds recorded in `scaffold.json` only (`--clean`: remove the build trees afterwards). |
+| `node bin/scaffold.js clean [dest]` | Remove the compiled build trees (`tests/build`, `target`, `zig-out`). |
 | `node bin/scaffold.js scaffold [dest]` | Explicit form of the default action. |
 
 Options:
@@ -131,6 +132,7 @@ Options:
 | `--select <list>` | `architecture[.board[.test]]` tokens, ids, or `all`. Default: previous selection, else one default board per port. |
 | `--config <name>` | Build only this configuration (repeatable). |
 | `--no-build` | Scaffold without the verification build. |
+| `--clean` | Remove the build output directories after the verification build. |
 | `--list-only` | Discover and write `scaffold.json`, copy nothing. |
 | `--lean` | Full kernel, plus only the build/run files of the selected test (default). |
 | `--minimal` | Keep the whole selected port; prune only the unselected boards, tests, platforms and suites. |
