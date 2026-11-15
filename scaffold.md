@@ -961,6 +961,10 @@ node /path/to/micro-os-scaffold/bin/scaffold.js \
 | `--micro-test-plus-ref <tag\|branch>` | What to clone when `--micro-test-plus` is a git URL. |
 | `--micro-test-plus-force` | Integrate also on boards that fail the runtime rule (13.3). |
 | `--no-micro-test-plus` | Drop a µTest++ integration recorded in `scaffold.json`. |
+| `--stdcpp` | Add the StateOS stdc++ package (bundled) and, with µTest++, the test `mtp-stdcpp` (13.9). |
+| `--stdcpp-from <git-url\|folder>` | Take the package from here instead (implies `--stdcpp`). |
+| `--stdcpp-ref <tag\|branch>` | What to clone when `--stdcpp-from` is a git URL. |
+| `--no-stdcpp` | Drop a stdc++ integration recorded in `scaffold.json`. |
 | `--help` | Usage. |
 | `--version` | Print the tool version. |
 
@@ -972,6 +976,7 @@ SCAFFOLD_SELECT   default selection
 SCAFFOLD_CACHE    where git sources are cloned (default ~/.cache/micro-os-scaffold)
 SCAFFOLD_DEBUG=1  print stack traces on error
 SCAFFOLD_MICRO_TEST_PLUS  default for --micro-test-plus
+SCAFFOLD_STDCPP   1 (bundled package) or a folder/git URL: default for --stdcpp
 ```
 
 The strictest layout option given wins (`--lean` over `--minimal` over
@@ -1622,6 +1627,58 @@ suites (10 test cases, 25 checks) verify SMP core release, GENET v5 MAC/PHY/ring
 (`0x600d84a2` BCM54213PE), Gigabit link auto-negotiation and lwIP DHCPv4 lease acquisition,
 56 B and 256 B ICMP echo rounds to the gateway with zero DMA errors, and FAT32 SD card logging
 (`tests/MTPNET.LOG`), while skipping cleanly under QEMU (`!HW_BUILD`).
+
+## 13.9 StateOS stdc++ (`--stdcpp`)
+
+The toolchain's libstdc++ is built without a thread model for bare metal: `<thread>`,
+`<mutex>`'s timed and condition parts, `<future>` and the C++20 synchronisation headers
+are missing or disabled. The StateOS stdc++ package fills them in over the kernel's
+objects. It was ported to µOS++ III and verified in `micro-os-scaffold-ctest-examples`
+(`rpi4b-smp/STDCXX.md` is the detailed porting guide). `--stdcpp` adds it:
+
+| Added | Where |
+| --- | --- |
+| the package, unchanged | `third_party/stateos-stdc++/` (bundled in `templates/stdcpp/stateos-stdc++/`, or `--stdcpp-from`) |
+| a `stateos-stdc++` block | the end of each board's `tests.cmake`: `add_subdirectory` of the package, an INTERFACE library |
+| one hook branch | the board's library hook: `mtp-stdcpp` links `stateos-stdc++` and `uos-micro-test-plus` |
+| `mtp-stdcpp` | each µTest++ board: `main.cpp` and six `suite-*.cpp` (requires `--micro-test-plus`) |
+| selection, docs | `mtp-stdcpp` in the configuration's tests and `run.sh`; a "StateOS stdc++" section in the workspace README |
+
+What the package provides:
+
+| Part | Provides |
+| --- | --- |
+| `include/bits/gthr-default.h`, `src/gthread.cc` | the GCC gthread layer over µOS++ mutexes, condition variables and threads |
+| `src/thread.cc`, `src/mutex.cc` | `std::thread` (an `os::rtos::thread` from the free store), `this_thread`, `call_once` |
+| `src/condition_variable.cc`, `src/future.cc` | `condition_variable`, at-thread-exit machinery, the `future` error category |
+| `src/chrono.cc`, `src/emutls.cc` | `system_clock`/`steady_clock` over the kernel clock; emulated `thread_local` |
+| `include/{barrier,latch,semaphore}` | C++20 `std::barrier`, `std::latch`, `std::counting_semaphore` on the kernel's objects |
+
+The include directory goes **before** the toolchain's C++ headers, so that `<bits/gthr-default.h>`,
+`<barrier>`, `<latch>` and `<semaphore>` are the package's; `_GLIBCXX_HAS_GTHREADS=1` is an
+INTERFACE definition of the library.
+
+`mtp-stdcpp`'s `main.cpp` releases the other cores when the board support can
+(`MTP_HAS_SMP_BOOT`) and otherwise runs on one core; the suites are the ones verified on
+the three boards, unchanged:
+
+| Suite | Checks |
+| --- | --- |
+| 01 std::thread and TLS | create, join, detach, `jthread`, ids, yield, sleep, `thread_local` |
+| 02 promise and future | value, void, `wait_for` status, `shared_future` |
+| 03 packaged_task and async | deferred vs async, `set_value_at_thread_exit` |
+| 04 mutexes and call_once | `lock_guard`, timed, recursive, `call_once` |
+| 05 condition variable and C++20 sync | `condition_variable`, semaphores, latch, barrier |
+| 06 chrono | the two clocks, sleeps, duration conversions |
+
+Measured with the option: Raspberry Pi 4 B under QEMU, 4 cores, 75/75 (with "00 - Cores");
+Pico 2 and WeAct F411CE scaffolds build (hardware only). The original workspaces ran the
+same suites on the Pi 4 B, the Pico 2 (both cores, and single-core under QEMU) and the WeAct.
+
+On the RP2040/RP2350 a `std::atomic` read-modify-write does not exclude the other core (13.5).
+Two suite-05 checks count with `fetch_add` from two workers, once each; on the Pico 2 a
+lost count is possible in principle, though not seen. For data two cores update, use the
+package's mutexes or `mtp_board::atomic_add ()`.
 
 ---
 

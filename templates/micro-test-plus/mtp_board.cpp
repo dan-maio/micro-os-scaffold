@@ -32,7 +32,7 @@
 #if defined(MTP_HAS_SMP_BOOT) && MTP_HAS_SMP_BOOT == 1
 #include <smp.hpp>
 #include <test-smp-boot.hpp>
-#elif defined(MTP_HAS_SMP_BOOT) && MTP_HAS_SMP_BOOT == 2
+#elif defined(MTP_HAS_SMP_BOOT) && MTP_HAS_SMP_BOOT == 2 && (OS_NCPU > 1)
 #include <bsp/multicore.hpp>
 
 extern "C"
@@ -345,6 +345,7 @@ namespace mtp_board
   }
 
 #if defined(MTP_HAS_SMP_BOOT) && MTP_HAS_SMP_BOOT
+#if OS_NCPU > 1
   namespace
   {
     int g_cores_wait_ms = -2; // -2: release_cores () not called
@@ -462,6 +463,35 @@ namespace mtp_board
       t.expect (mt::ge (g_cores_wait_ms, 0)) << "within 3 s";
     });
   }
+#else // OS_NCPU == 1
+  // The emulated pico2 image is the generic single-core Cortex-M QEMU
+  // machine: there is no second core, no SIO block and no bootrom FIFO. The
+  // interface stays the same, so a test built for the board still links.
+  bool
+  cores_joined () noexcept
+  {
+    return true;
+  }
+
+  const char*
+  cores_summary () noexcept
+  {
+    return "single core";
+  }
+
+  int
+  release_cores () noexcept
+  {
+    std::printf ("# cores: single core (emulated image)\n");
+    return 0;
+  }
+
+  void
+  suite_cores (mt::suite&)
+  {
+    // Not registered: there is no other core to report.
+  }
+#endif // OS_NCPU > 1
 #endif
 
   unsigned
@@ -629,7 +659,7 @@ namespace mtp_board
   }
 } // namespace mtp_board
 
-#if defined(MTP_HAS_SMP_BOOT) && MTP_HAS_SMP_BOOT
+#if defined(MTP_HAS_SMP_BOOT) && MTP_HAS_SMP_BOOT && (OS_NCPU > 1)
 // "00 - Cores" is board support, not a test, so it registers itself here and
 // every SMP test gets it without listing it.
 namespace

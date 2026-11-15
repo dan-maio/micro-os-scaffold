@@ -14,6 +14,7 @@ const { slimConfig, leanReadme, cleanLeanOutputs } = require('../lib/lean');
 const { runVerification } = require('../lib/build');
 const { resolveSource } = require('../lib/source');
 const microTestPlus = require('../lib/micro-test-plus');
+const stdcpp = require('../lib/stdcpp');
 const { parseHierarchicalSelection, isDirectory, readJson, writeFile } = require('../lib/util');
 
 const PACKAGE = readJson(path.join(__dirname, '..', 'package.json'), {});
@@ -51,6 +52,17 @@ Options:
   --micro-test-plus-force
                         integrate also on boards that fail the runtime rule
   --no-micro-test-plus  drop a µTest++ integration recorded in scaffold.json
+  --stdcpp              add the StateOS stdc++ package adapted to µOS++ III
+                        (std::thread, mutex, condition_variable, future/promise/
+                        async, chrono clocks, thread_local, C++20 barrier/latch/
+                        semaphore): third_party/stateos-stdc++, a tests.cmake
+                        block, and, with --micro-test-plus, the test mtp-stdcpp
+  --stdcpp-from <git-url|folder>
+                        take the package from here instead of the bundled copy
+                        (implies --stdcpp)
+  --stdcpp-ref <tag|branch>
+                        what to clone when --stdcpp-from is a git URL
+  --no-stdcpp           drop a stdc++ integration recorded in scaffold.json
   --select <list>       architecture[.board[.test]] tokens, ids, or 'all'
                         (e.g. 2, 2.3, 2.3.1; default: previous, else one board per port)
   --config <name>       build only this configuration (repeatable)
@@ -69,7 +81,8 @@ Options:
 Environment:
   SCAFFOLD_SOURCE       same as --source
   SCAFFOLD_SELECT       same as --select
-  SCAFFOLD_MICRO_TEST_PLUS   same as --micro-test-plus`;
+  SCAFFOLD_MICRO_TEST_PLUS   same as --micro-test-plus
+  SCAFFOLD_STDCPP       1, or a folder/git URL: same as --stdcpp / --stdcpp-from`;
 }
 
 function parseArgs(argv) {
@@ -89,6 +102,10 @@ function parseArgs(argv) {
     microTestPlusRef: null,
     microTestPlusForce: false,
     noMicroTestPlus: false,
+    stdcpp: false,
+    stdcppFrom: null,
+    stdcppRef: null,
+    noStdcpp: false,
     version: false,
     help: false,
   };
@@ -123,6 +140,12 @@ function parseArgs(argv) {
     else if (arg.startsWith('--micro-test-plus-ref=')) result.microTestPlusRef = arg.slice('--micro-test-plus-ref='.length);
     else if (arg === '--micro-test-plus-force') result.microTestPlusForce = true;
     else if (arg === '--no-micro-test-plus') result.noMicroTestPlus = true;
+    else if (arg === '--stdcpp') result.stdcpp = true;
+    else if (arg === '--stdcpp-from') { result.stdcpp = true; result.stdcppFrom = nextValue('--stdcpp-from'); }
+    else if (arg.startsWith('--stdcpp-from=')) { result.stdcpp = true; result.stdcppFrom = arg.slice('--stdcpp-from='.length); }
+    else if (arg === '--stdcpp-ref') result.stdcppRef = nextValue('--stdcpp-ref');
+    else if (arg.startsWith('--stdcpp-ref=')) result.stdcppRef = arg.slice('--stdcpp-ref='.length);
+    else if (arg === '--no-stdcpp') result.noStdcpp = true;
     else if (arg === '--branch') result.branch = nextValue('--branch');
     else if (arg.startsWith('--branch=')) result.branch = arg.slice('--branch='.length);
     else if (arg === '--minimal' || arg === '--lean' || arg === '--full') modes.add(arg.slice(2));
@@ -413,6 +436,24 @@ async function commandScaffold(options) {
     console.log('µTest++ (micro-test-plus):');
     mtpFramework = microTestPlus.resolveFramework(mtpSpec, mtpRef);
   }
+  // StateOS stdc++: given now (or by SCAFFOLD_STDCPP), or kept from the
+  // previous run unless dropped. The bundled copy is recorded as 'bundled'.
+  let stdcppPackage = null;
+  {
+    const env = process.env.SCAFFOLD_STDCPP;
+    const fromEnv = env && env !== '0' ? (env === '1' ? 'bundled' : env) : null;
+    let spec = null;
+    if (!options.noStdcpp) {
+      if (options.stdcpp) spec = options.stdcppFrom ?? 'bundled';
+      else spec = fromEnv ?? previous?.stdcpp?.spec ?? null;
+    }
+    const ref = options.stdcpp ? options.stdcppRef : options.stdcppRef ?? previous?.stdcpp?.ref ?? null;
+    if (spec) {
+      console.log('');
+      console.log('StateOS stdc++:');
+      stdcppPackage = stdcpp.resolvePackage(spec === 'bundled' ? null : spec, ref);
+    }
+  }
   saveConfig(destination, config);
   printToolSummary(config);
 
@@ -433,6 +474,7 @@ async function commandScaffold(options) {
     lean: mode === 'lean',
     microTestPlus: mtpFramework,
     microTestPlusForce: mtpForce,
+    stdcpp: stdcppPackage,
   });
   console.log(`  layout:        ${mode}`);
   saveConfig(destination, config.lean ? slimConfig(config) : config);
@@ -447,6 +489,7 @@ async function commandScaffold(options) {
   }
   for (const patch of result.patches) console.log(`  patched:       ${patch}`);
   microTestPlus.printSummary(config.microTestPlus);
+  stdcpp.printSummary(config.stdcpp);
   for (const [key, xpack] of Object.entries(result.xpacks)) {
     console.log(`  xpack:         ${key} ${xpack.version ?? ''} -> ${xpack.destination}`);
   }

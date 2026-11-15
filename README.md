@@ -139,6 +139,10 @@ Options:
 | `--micro-test-plus-ref <tag\|branch>` | What to clone when `--micro-test-plus` is a git URL. |
 | `--micro-test-plus-force` | Integrate µTest++ also on boards that fail the runtime rule. |
 | `--no-micro-test-plus` | Drop a µTest++ integration recorded in `scaffold.json`. |
+| `--stdcpp` | Add the StateOS stdc++ package adapted to µOS++ III (the bundled, verified copy) and, with `--micro-test-plus`, the test `mtp-stdcpp` (see "StateOS stdc++" below). |
+| `--stdcpp-from <git-url\|folder>` | Take the package from this folder or repository instead (implies `--stdcpp`). |
+| `--stdcpp-ref <tag\|branch>` | What to clone when `--stdcpp-from` is a git URL. |
+| `--no-stdcpp` | Drop a stdc++ integration recorded in `scaffold.json`. |
 | `--yes` | Non-interactive; use the default selection. |
 | `--help` | Usage. |
 | `--version` | Print the tool version. |
@@ -147,7 +151,7 @@ The strictest layout option given wins; a re-run without one keeps the layout re
 `scaffold.json`. With git sources the numeric ids depend on which repositories were cloned,
 so prefer names (`cortexm-pico2.smp-mat-test-ram`) or run `discover` with the same `--source`.
 
-Environment: `SCAFFOLD_SOURCE`, `SCAFFOLD_SELECT`, `SCAFFOLD_MICRO_TEST_PLUS`, `SCAFFOLD_CACHE` (clone cache),
+Environment: `SCAFFOLD_SOURCE`, `SCAFFOLD_SELECT`, `SCAFFOLD_MICRO_TEST_PLUS`, `SCAFFOLD_STDCPP` (`1` or a source), `SCAFFOLD_CACHE` (clone cache),
 `SCAFFOLD_DEBUG=1` (stack traces).
 Per-tool overrides use `SCAFFOLD_<TOOL>` (for example `SCAFFOLD_CMAKE=/opt/cmake/bin/cmake`).
 
@@ -824,6 +828,39 @@ semihosting `argc`/`argv` check), on boards whose other cores it can start,
 
 `scaffold.md`, chapter 13, explains the integration, analysed from the hand-made one in
 `micro-os-scaffold-workspace-rpi-zero-2w`, and how to run with two probes on one host.
+
+## StateOS stdc++ (`--stdcpp`)
+
+`--stdcpp` adds the StateOS stdc++ package adapted to µOS++ III: the parts of libstdc++
+a bare-metal toolchain leaves out, implemented over the kernel's objects. That is the
+GCC gthread layer (`std::thread`, `std::mutex`, `std::condition_variable`,
+`std::call_once`), `std::future`/`promise`/`async`/`packaged_task`, `system_clock` and
+`steady_clock` over the kernel clock, emulated `thread_local`, and C++20 `<barrier>`,
+`<latch>` and `<semaphore>`.
+
+```bash
+node bin/scaffold.js ../ws-rpi4b --select aarch64-rpi4b.clock-test \
+  --micro-test-plus https://github.com/micro-os-plus/micro-test-plus-xpack.git \
+  --micro-test-plus-ref v6.0.0 --stdcpp --yes
+cd ../ws-rpi4b/tests && ./run.sh mtp-stdcpp
+```
+
+- **The package** is bundled with the scaffolder (`templates/stdcpp/stateos-stdc++/`),
+  the copy used and verified in `micro-os-scaffold-ctest-examples`. It is copied unchanged
+  to `third_party/stateos-stdc++/`. `--stdcpp-from <folder|git-url>` takes another copy.
+- **Each board** gets a `stateos-stdc++` block in its `tests.cmake` (an INTERFACE
+  library: its sources compile into each test that links it, with that test's flags).
+- **With `--micro-test-plus`**, each µTest++ board also gets the test `mtp-stdcpp`, with
+  six suites: `std::thread` and TLS, promise/future, packaged_task/async, mutexes and
+  `call_once`, the synchronisation primitives, and chrono. It is linked to the package
+  from the board's library hook. Without µTest++ only the library is wired; a test links
+  it by returning `stateos-stdc++` from the hook.
+- **Verified:** the same suites pass on the Raspberry Pi 4 B (4 cores), the Pico 2 (2 cores,
+  and single-core under QEMU) and the WeAct F411CE (1 core). A scaffold made with
+  `--stdcpp` passes 75/75 under QEMU on the Pi 4 B, and builds for the Pico 2 and the WeAct.
+
+`scaffold.md`, chapter 13.9, has the details. The option is recorded in `scaffold.json` and
+kept by later runs; `--no-stdcpp` removes it.
 
 ## Moving or renaming the workspace
 
