@@ -1788,6 +1788,8 @@ on 2026-11-24, the hand-made tests as local tests:
 | `weactf411-spi-stdcpp` | `cortexm-weactf411.spi-pipeline` | µTest++, stdc++ | `spi-stdcpp-test` | hardware only |
 | `rpi-zero-2w-aarch64` | `aarch64-rpi-zero-2w.smp-mat-test` | µTest++ | — | 4/4 |
 | `rpi-zero-2w-aarch32` | `aarch32-rpi-zero-2w.smp-mat-test` | µTest++, stdc++ | — | 5/5 |
+| `luckfox-lyra` (added later) | `aarch32-luckfox-lyra` (all 21 tests) | µTest++ | — | hardware only |
+| `rpi-zero-2w-aarch64-usb-stdcpp` (added later) | `aarch64-rpi-zero-2w.usb_test`, `.sd_test` | µTest++, stdc++ | `usb-sd-stdcpp` | 7/7 (the USB tests SKIP: no device mode) |
 
 Each nested workspace now has its own `third_party/stateos-stdc++` (the `--stdcpp` copy)
 instead of a link to a shared copy at the repository root.
@@ -1799,6 +1801,7 @@ On the boards (2026-11-24):
 | `rpi4b-smp` | 7/7 | `mtp-smp` 78/78, speed-up 3.85x; `mtp-stdcpp` and `smp_test4` 75/75; `mtp-eth-net` 25/25 |
 | `pico2-smp-stdcpp` | 6/6 | `mtp-smp` 71/71, speed-up 1.99x; `mtp-stdcpp` and `smp-stdcpp-test` 75/75; `mtp-args` 10/10 after the `--wrap=main` fix |
 | `luckfox-lyra` | 21/21 classic; µTest++ 3/3 | `mtp-args` 10/10, `mtp-example` 27/27, `mtp-smp` 75/75 (speed-up 2.88x on 3 cores), with the `openocd.cfg` fix below |
+| `rpi-zero-2w-aarch64-usb-stdcpp` | `usb-sd-stdcpp` | `host_xfer.py`, sizes 0 B to 64 KiB: PUT, GET, LIST and CRCs pass, 19 commands, 4 cores active, `RESULT: PASS`; 1 MiB fails as with `usb_test` (see below) |
 
 The first Pico 2 run found that its `boot.S` calls `main (0, NULL)`, so `mtp-args` saw
 `argc=0`; the µTest++ support's `__wrap_main` (13.x) fixed it. The WeAct and Zero 2 W
@@ -1818,6 +1821,23 @@ without the `keep`.
 Each semihosting call still costs about 0.55 s through the WCH-Link's USB HID transfers,
 whatever the timer interval, so a µTest++ test takes minutes there: `mtp-args` 148 s,
 `mtp-example` 196 s, `mtp-smp` 378 s.
+
+`rpi-zero-2w-aarch64-usb-stdcpp` holds a local test written for this
+collection, `usb-sd-stdcpp`. It keeps `usb_test`'s USB device, wire protocol
+and SD storage, so the source's host apps (`host_xfer.py`, `send_file.py`)
+drive it. Its application layer is written on the stdc++ package:
+
+- `std::thread` for every thread;
+- bounded channels built from `std::mutex` and `std::condition_variable`;
+- a `std::promise`/`std::future` pair per SD request;
+- `std::async` for each stored file's CRC;
+- `std::chrono` for the timings, `std::atomic` for the core tally.
+
+Its wiring is in `tests.local.cmake`: `stateos-stdc++`,
+`micro-os-plus::devices-usb`, and the storage list. Transfers of 1 MiB time
+out with this test and with the original `usb_test` alike. The device prints
+each stored file as a hexdump on the 115200-baud UART before it replies,
+about 5 minutes for 1 MiB, and the host app waits 120 s.
 
 # 15. Rules, invariants and design philosophy
 
