@@ -21,12 +21,31 @@ reaches the board's other tests): the check counter and report, `finish ()`
 with the RESULT line, `bring_up ()` (UART, SPI1, `spi::probe ()`, JEDEC size),
 and the scratch layout. Only the top 64 KiB of the part is written.
 
-To use it in a workspace scaffolded for `cortexm-weactf411`: copy `include/` and
-the five directories to `micro-os-plus-iii-cortexm/test/weactf411/` (the
-board's tests' `include/` is already on every test's include path), add the
-five to the configuration selection in `scaffold.json`, and run
+To use it in a workspace scaffolded for `cortexm-weactf411` (current layout):
+
+1. Copy the five folders to `micro-os-plus-iii/tests/platforms/cortexm-weactf411/tests/`,
+   and `include/flash_check.hpp` to that folder's `include/`. The builder puts
+   it on every test's include path. No CMake change is needed.
+2. List them in the workspace's `scripts/local-tests.txt`, so that a
+   re-scaffold keeps them and `./run.sh` runs them by default:
+
+   ```text
+   flash-id
+   flash-raw
+   flash-transports
+   flash-flatfs
+   flash-threads
+   keep micro-os-plus-iii/tests/platforms/cortexm-weactf411/tests/include
+   ```
+3. Run `./run.sh --hwd-only` (board and probe attached).
+
+Checked on 2026-11-24: in a current-layout WeAct workspace the five build
+this way, and `./run.sh list` shows them as local tests (`L`).
+
+In an old-layout workspace, the folders went to
+`micro-os-plus-iii-cortexm/test/weactf411/` instead, were added to the selection
+in `scaffold.json`, and were run with
 `./run.sh -c cortexm-weactf411-cmake-gcc-debug flash-id flash-raw flash-transports flash-flatfs flash-threads --hwd-only`.
-A re-scaffold removes them: keep them here or in the source repository.
 
 Result on the board (2026-11-14, W25Q128 `ef 40 18`, WCH-Link): 5/5 passed,
 4 to 6 s each.

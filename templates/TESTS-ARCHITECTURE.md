@@ -520,7 +520,11 @@ starts the scheduler. The main thread calls `os_main(argc, argv)`.
 **Cortex-M µTest++:** the kernel's `main(argc, argv)` is used. A strong
 `os_startup_initialize_args()` in the board support reads the semihosting
 command line; the kernel creates the main thread and calls
-`os_main(argc, argv)`.
+`os_main(argc, argv)`. A board whose own reset code calls `main (0, NULL)`
+and skips the kernel's `startup ()` (the RP2350's `boot.S`) never reaches that
+function. The µTest++ block therefore links with `-Wl,--wrap=main`, and
+`__wrap_main` in `mtp_board.cpp` reads the command line itself when `argc` is
+0. Where `startup ()` passed the arguments, it changes nothing.
 
 **Classic test:** the test may carry its own `main()` (as the AArch boards do)
 or use the kernel's; either way it calls its own `os_main`.

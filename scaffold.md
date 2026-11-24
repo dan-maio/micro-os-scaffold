@@ -1612,8 +1612,10 @@ threads sharing the bus under a mutex. Rules that came out of it:
   the active one;
 - reproduce what the driver's own set-up does before forcing a path (`spi::probe ()` keeps
   DMA and leaves SPI1's interrupt masked; the IRQ path needs it unmasked);
-- add the test to the configuration selection (`scaffold.json`) to run it by default,
-  and keep a copy in the source repository: a re-scaffold removes it.
+- to keep the test across re-scaffolds and run it by default, list it in the workspace's
+  `scripts/local-tests.txt` (current layout, 14.3); in an old-layout workspace, add it to the
+  configuration selection in `scaffold.json` and keep a copy in the source repository, since a
+  re-scaffold removes it.
 
 The same checks can be written without µTest++. `examples/cortexm-weactf411-flash-battery/`
 splits them into five classic tests (`flash-id`, `flash-raw`, `flash-transports`,
@@ -1623,10 +1625,13 @@ in the board's test `include/` (so the board's other tests link nothing new). Th
 no framework and one CTest case per area, but a plain report instead of TAP, and only the
 verdict reaches the runner's log; the per-check lines are on the UART.
 
-On boards that carry the GENET v5 + BCM54213PE + lwIP Ethernet stack in
-`test/boards/<board>/net/src/` (such as the Raspberry Pi 4 B), the scaffolder also adds
-`mtp-eth-net` (`templates/micro-test-plus/mtp-eth-net/`), links it against
-`uos-micro-test-plus` and `<platform>-eth`, and adds it to `BOARD_TEST_NEED_DEVICES`. Its five
+On boards that carry the GENET v5 + BCM54213PE + lwIP Ethernet stack (such as the Raspberry
+Pi 4 B), the scaffolder also adds `mtp-eth-net` (`templates/micro-test-plus/mtp-eth-net/`) and
+links it against `uos-micro-test-plus` and `<platform>-eth`. The stack is found in
+`micro-os-plus-iii/tests/platforms/<platform>/net/src/`, and the test is added to
+`UOS_TESTS_STORAGE` for the SD card of its log suite (current layout). In the old layout the
+stack was in `test/boards/<board>/net/src/` and the test was added to
+`BOARD_TEST_NEED_DEVICES`. Its five
 suites (10 test cases, 25 checks) verify SMP core release, GENET v5 MAC/PHY/ring initialisation
 (`0x600d84a2` BCM54213PE), Gigabit link auto-negotiation and lwIP DHCPv4 lease acquisition,
 56 B and 256 B ICMP echo rounds to the gateway with zero DMA errors, and FAT32 SD card logging
@@ -1806,8 +1811,8 @@ On the boards (2026-11-24):
 | `rpi-zero-2w-aarch32-usb-stdcpp` | `usb-sd-stdcpp` | the same in AArch32 (3.5 s for the matrix); a random 1 MiB file byte for byte; confirms the AArch32 driver's fix |
 
 The first Pico 2 run found that its `boot.S` calls `main (0, NULL)`, so `mtp-args` saw
-`argc=0`; the µTest++ support's `__wrap_main` (13.x) fixed it. The WeAct and Zero 2 W
-workspaces have not yet been re-run on the boards.
+`argc=0`; the µTest++ support's `__wrap_main` (13.x) fixed it. The WeAct workspaces and
+the two Zero 2 W `smp-mat-test` workspaces have not yet been re-run on the boards.
 
 The Luckfox Lyra (`luckfox-lyra`, added later the same day) found an OpenOCD problem. With
 µTest++'s many semihosting calls, OpenOCD's background polling sometimes stopped noticing

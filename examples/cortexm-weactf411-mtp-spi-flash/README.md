@@ -3,17 +3,26 @@
 A µTest++ test written for one board, in a workspace scaffolded with
 `--micro-test-plus`. It tests the WeAct F411CE's SPI NOR flash (a Winbond
 W25Q128, 16 MiB, on SPI1) through the board's own drivers in
-`micro-os-plus-iii-cortexm/test/boards/weactf411/src/` (`spi.cpp`, `flash.cpp`,
+`micro-os-plus-iii/tests/platforms/cortexm-weactf411/src/` (`spi.cpp`, `flash.cpp`,
 `flatfs.cpp`).
 
-To use it, copy `main.cpp`, `flash_helpers.hpp` and the `suite-*.cpp` files to
-`micro-os-plus-iii-cortexm/test/weactf411/mtp-spi-flash/` in the workspace and run
-`./run.sh -c cortexm-weactf411-cmake-gcc-debug mtp-spi-flash --hwd-only`. As every
-`mtp-*` directory, it needs no CMake change. Each suite is its own file and
+To use it (current layout):
+
+1. Copy `main.cpp`, `flash_helpers.hpp` and the `suite-*.cpp` files to
+   `micro-os-plus-iii/tests/platforms/cortexm-weactf411/tests/mtp-spi-flash/`.
+2. Add `mtp-spi-flash` to `scripts/local-tests.txt`, so that a re-scaffold
+   keeps it.
+3. Run `./run.sh --hwd-only mtp-spi-flash`.
+
+Like every `mtp-*` folder, it needs no CMake change. Each suite is its own file and
 registers itself with a `mt::static_suite`; there is no list in `main.cpp`. The
-complete TAP report is written to `.hw-logs/mtp-spi-flash.tap` next to the
-runner log. A re-scaffold removes it, so keep it here or in the source
-repository.
+complete TAP report is written to
+`micro-os-plus-iii/tests/build/cortexm-weactf411-cmake-gcc-debug/mtp-reports/cortexm-weactf411-mtp-spi-flash-hwd.tap`.
+Checked on 2026-11-24: it builds this way in a current-layout WeAct workspace.
+
+In an old-layout workspace, the folder went to
+`micro-os-plus-iii-cortexm/test/weactf411/mtp-spi-flash/`, the report to
+`.hw-logs/mtp-spi-flash.tap`, and a re-scaffold removed it.
 
 | Suite | Checks |
 | --- | --- |
