@@ -1003,5 +1003,10 @@ project is deselected it is left on disk but is no longer listed in
   unless `scripts/local-tests.txt` lists them (new layout, see "Local tests"). In an old-layout
   workspace, copy new work to the source repository first.
 - µTest++ was run on the Zero 2 W (AArch64 and AArch32), the Pi 4 B, the Pico 2, the
-  NUCLEO-F411 and the WeAct F411CE; other boards are integrated by the same rules but not yet
-  run on hardware.
+  NUCLEO-F411, the WeAct F411CE and the Luckfox Lyra (RK3506); other boards are integrated by
+  the same rules but not yet run on hardware.
+- Luckfox Lyra: with the source's `openocd.cfg`, a µTest++ test hangs, because OpenOCD's
+  background polling sometimes misses a semihosting halt of core 0. The
+  `micro-os-scaffold-ctest-examples/luckfox-lyra` workspace keeps a fixed `openocd.cfg` (a Tcl
+  timer that polls core 0 every 100 ms) through `scripts/local-tests.txt`. Each semihosting
+  call costs about 0.55 s through the WCH-Link, so a µTest++ test takes minutes there.

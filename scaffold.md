@@ -1798,10 +1798,24 @@ On the boards (2026-11-24):
 | --- | --- | --- |
 | `rpi4b-smp` | 7/7 | `mtp-smp` 78/78, speed-up 3.85x; `mtp-stdcpp` and `smp_test4` 75/75; `mtp-eth-net` 25/25 |
 | `pico2-smp-stdcpp` | 6/6 | `mtp-smp` 71/71, speed-up 1.99x; `mtp-stdcpp` and `smp-stdcpp-test` 75/75; `mtp-args` 10/10 after the `--wrap=main` fix |
+| `luckfox-lyra` | 21/21 classic; µTest++ 3/3 | `mtp-args` 10/10, `mtp-example` 27/27, `mtp-smp` 75/75 (speed-up 2.88x on 3 cores), with the `openocd.cfg` fix below |
 
 The first Pico 2 run found that its `boot.S` calls `main (0, NULL)`, so `mtp-args` saw
 `argc=0`; the µTest++ support's `__wrap_main` (13.x) fixed it. The WeAct and Zero 2 W
 workspaces have not yet been re-run on the boards.
+
+The Luckfox Lyra (`luckfox-lyra`, added later the same day) found an OpenOCD problem. With
+µTest++'s many semihosting calls, OpenOCD's background polling sometimes stopped noticing
+that core 0 had halted at a semihosting trap. Core 0's debug registers showed it halted by the
+SVC vector catch while OpenOCD reported it running, and a single poll served the call. Without
+a fix, `mtp-args` and a 32 KiB semihosting file test hung until the CTest timeout. The old
+layout failed the same way, with the same OpenOCD (0.12.0-7.1) and the WCH-Link.
+
+The workspace's `openocd.cfg` adds a self-rescheduling Tcl timer that polls core 0 every
+100 ms (`uos_semihosting_kick`), and `scripts/local-tests.txt` keeps the file (`keep ...`).
+Each semihosting call still costs about 0.55 s through the WCH-Link's USB HID transfers,
+whatever the timer interval, so a µTest++ test takes minutes there: `mtp-args` 148 s,
+`mtp-example` 196 s, `mtp-smp` 378 s. The source repository's `openocd.cfg` is unchanged.
 
 # 15. Rules, invariants and design philosophy
 
@@ -1993,7 +2007,8 @@ node /home/dan/Work/micro-os-scaffold/bin/scaffold.js \
   but it will not survive a clean checkout. Commit tests that matter.
 - **µTest++ coverage.** `--micro-test-plus` was verified on the Zero 2 W
   and Pi 4 B (AArch64), the Zero 2 W (AArch32), the Pico 2 (RP2350), the
-  NUCLEO-F411 and the WeAct F411CE (Cortex-M4), on the boards, including
+  NUCLEO-F411 and the WeAct F411CE (Cortex-M4) and the Luckfox Lyra (RK3506, AArch32),
+  on the boards, including
   Suite 09 (speed-up) across all four SMP configurations and `mtp-eth-net` on
   the Pi 4 B. The other ports' boards are integrated by the same rules but not
   yet run. Probe selection by serial number is a wrapper (13.7), not yet an
