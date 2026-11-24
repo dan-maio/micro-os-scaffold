@@ -1801,7 +1801,7 @@ On the boards (2026-11-24):
 | `rpi4b-smp` | 7/7 | `mtp-smp` 78/78, speed-up 3.85x; `mtp-stdcpp` and `smp_test4` 75/75; `mtp-eth-net` 25/25 |
 | `pico2-smp-stdcpp` | 6/6 | `mtp-smp` 71/71, speed-up 1.99x; `mtp-stdcpp` and `smp-stdcpp-test` 75/75; `mtp-args` 10/10 after the `--wrap=main` fix |
 | `luckfox-lyra` | 21/21 classic; µTest++ 3/3 | `mtp-args` 10/10, `mtp-example` 27/27, `mtp-smp` 75/75 (speed-up 2.88x on 3 cores), with the `openocd.cfg` fix below |
-| `rpi-zero-2w-aarch64-usb-stdcpp` | `usb-sd-stdcpp` | `host_xfer.py`, sizes 0 B to 64 KiB: PUT, GET, LIST and CRCs pass, 19 commands, 4 cores active, `RESULT: PASS`; 1 MiB fails as with `usb_test` (see below) |
+| `rpi-zero-2w-aarch64-usb-stdcpp` | `usb-sd-stdcpp` | `host_xfer.py` 0 B to 1 MiB: PUT, GET, LIST and CRCs pass, 19 commands, 4 cores active, `RESULT: PASS`, after the USB driver fix below |
 
 The first Pico 2 run found that its `boot.S` calls `main (0, NULL)`, so `mtp-args` saw
 `argc=0`; the µTest++ support's `__wrap_main` (13.x) fixed it. The WeAct and Zero 2 W
@@ -1834,10 +1834,21 @@ drive it. Its application layer is written on the stdc++ package:
 - `std::chrono` for the timings, `std::atomic` for the core tally.
 
 Its wiring is in `tests.local.cmake`: `stateos-stdc++`,
-`micro-os-plus::devices-usb`, and the storage list. Transfers of 1 MiB time
-out with this test and with the original `usb_test` alike. The device prints
-each stored file as a hexdump on the 115200-baud UART before it replies,
-about 5 minutes for 1 MiB, and the host app waits 120 s.
+`micro-os-plus::devices-usb`, and the storage list. It prints a short UART
+dump of each stored file, so `host_xfer.py`'s full matrix (0 B to 1 MiB)
+finishes in under 10 s. `usb_test`'s full dump of a 1 MiB file takes about
+5 minutes, longer than the host app's 120 s wait.
+
+Running 1 MiB through it found a USB driver bug in the bcm283x device
+package's `usb_dwc2::ep_read ()`:
+
+- the driver aimed the DMA at the caller's buffer;
+- a buffer ending 48 bytes into a cache line shared with counters other
+  threads update lost those 48 bytes on every 1 MiB transfer.
+
+The source now receives each chunk into a 64-byte-aligned driver buffer
+(micro-os-plus-iii-devices-bcm283x `027acb3`, AArch64 and AArch32). On the
+board the full matrix and a random 1 MiB file then pass.
 
 # 15. Rules, invariants and design philosophy
 

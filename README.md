@@ -103,8 +103,10 @@ Two workspaces added later the same day:
 
 - `luckfox-lyra`: 21/21 classic tests, and µTest++ 3/3 with the OpenOCD polling fix.
 - `rpi-zero-2w-aarch64-usb-stdcpp`, whose local test `usb-sd-stdcpp` is `usb_test` rewritten
-  on the stdc++ package. Driven by the source's `host_xfer.py` on the board (0 B to 64 KiB),
-  it reported `RESULT: PASS`.
+  on the stdc++ package. Driven by the source's `host_xfer.py` on the board (0 B to 1 MiB),
+  it reported `RESULT: PASS`. On its way it found a bcm283x USB driver bug: DMA into a
+  caller's buffer that shares cache lines lost the last 48 bytes of 1 MiB transfers. It is
+  fixed in the source device package (`027acb3`).
 
 ## Local tests (`scripts/local-tests.txt`)
 
