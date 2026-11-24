@@ -1811,8 +1811,16 @@ On the boards (2026-11-24):
 | `rpi-zero-2w-aarch32-usb-stdcpp` | `usb-sd-stdcpp` | the same in AArch32 (3.5 s for the matrix); a random 1 MiB file byte for byte; confirms the AArch32 driver's fix |
 
 The first Pico 2 run found that its `boot.S` calls `main (0, NULL)`, so `mtp-args` saw
-`argc=0`; the µTest++ support's `__wrap_main` (13.x) fixed it. The two Zero 2 W
-`smp-mat-test` workspaces have not yet been re-run on the boards.
+`argc=0`; the µTest++ support's `__wrap_main` (13.x) fixed it.
+
+The two Zero 2 W `smp-mat-test` workspaces on the board (2026-11-24, JTAG probe):
+
+- AArch32 5/5 (`smp-mat-test`, `mtp-args` 10/10, `mtp-example` 27/27, `mtp-smp` 78/78 with
+  a 3.92x speed-up, `mtp-stdcpp` 75/75), at the pinned 10000 kHz;
+- AArch64 4/4 (`smp-mat-test`, `mtp-args` 10/10, `mtp-example` 27/27, `mtp-smp` 78/78 with
+  a 3.84x speed-up).
+
+With these, every example workspace has passed on its board in the new layout.
 
 The WeAct workspaces on the board (2026-11-24, WCH-Link): the root 3/3 (`mos-test1`,
 `mtp-args` 7/7, `mtp-example` 24/24), `weactf411-spi-stdcpp` 5/5 (`spi-pipeline`,

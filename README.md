@@ -136,8 +136,9 @@ Verified (2026-11-24) with the six workspaces of `micro-os-scaffold-ctest-exampl
 build; every QEMU case passes (Pi 4 B 7/7 with `mtp-eth-net` skipped under QEMU as designed,
 Zero 2 W AArch64 4/4, AArch32 5/5, Pico 2 `smp-stdcpp-test` 1/1); the µTest++ TAP reports and
 `argv` arrive. On the boards: Pi 4 B 7/7 hardware cases, Pico 2 6/6 (`mtp-smp` speed-up 3.85x
-and 1.99x, `mtp-stdcpp` 75/75 on both), and both WeAct workspaces 8/8. The two Zero 2 W
-`smp-mat-test` workspaces have not yet been re-run on their boards.
+and 1.99x, `mtp-stdcpp` 75/75 on both), both WeAct workspaces 8/8, the Zero 2 W AArch32 5/5
+(`mtp-smp` 3.92x) and AArch64 4/4 (`mtp-smp` 3.84x). Every example workspace has passed on
+its board.
 Two workspaces added later the same day:
 
 - `luckfox-lyra`: 21/21 classic tests, and µTest++ 3/3 with the OpenOCD polling fix.
