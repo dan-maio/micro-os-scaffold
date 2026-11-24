@@ -1811,8 +1811,17 @@ On the boards (2026-11-24):
 | `rpi-zero-2w-aarch32-usb-stdcpp` | `usb-sd-stdcpp` | the same in AArch32 (3.5 s for the matrix); a random 1 MiB file byte for byte; confirms the AArch32 driver's fix |
 
 The first Pico 2 run found that its `boot.S` calls `main (0, NULL)`, so `mtp-args` saw
-`argc=0`; the µTest++ support's `__wrap_main` (13.x) fixed it. The WeAct workspaces and
-the two Zero 2 W `smp-mat-test` workspaces have not yet been re-run on the boards.
+`argc=0`; the µTest++ support's `__wrap_main` (13.x) fixed it. The two Zero 2 W
+`smp-mat-test` workspaces have not yet been re-run on the boards.
+
+The WeAct workspaces on the board (2026-11-24, WCH-Link): the root 3/3 (`mos-test1`,
+`mtp-args` 7/7, `mtp-example` 24/24), `weactf411-spi-stdcpp` 5/5 (`spi-pipeline`,
+`mtp-stdcpp` 72/72, and the local `spi-stdcpp-test` 104/104). `spi-stdcpp-test` first failed
+its 4 command-line checks: it is a µTest++ test not named `mtp-*`, so the registration
+helpers passed it no command line. A µTest++ test with another name now opts in with
+`set_property (GLOBAL APPEND PROPERTY UOS_MTP_APPS <name>)`, which its `tests.local.cmake`
+does. The property is global because `tests.local.cmake` is read in the builder's scope and
+the tests are registered in the platform's.
 
 The Luckfox Lyra (`luckfox-lyra`, added later the same day) found an OpenOCD problem. With
 µTest++'s many semihosting calls, OpenOCD's background polling sometimes stopped noticing

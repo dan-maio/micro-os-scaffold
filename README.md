@@ -128,7 +128,7 @@ node bin/scaffold.js /path/to/output \
 | Entry point | `./run.sh` at the workspace root (`build`, `test`, `list`, `all`, `clean`; `--hwd`, `--hwd-only`, `-R`, `-c`). It links the workspace's package copies into `micro-os-plus-iii/tests/build/<C>/xpacks/@micro-os-plus/` (relative links), the per-configuration libraries (`@xpacks/arm-cmsis`) and the pinned tools (`xpacks/.bin`), then runs the configuration's own `cmake -S . -B build/<C> ... -D PLATFORM_NAME=<p> -D CMAKE_TOOLCHAIN_FILE=...`. It never runs `xpm link` |
 | Tool paths | `scripts/env.sh` (generated), the tool folders pinned by the configuration's `devDependencies` in the xPack store |
 | Results | `build/<C>/ctest.xml`, `ctest.log`; a µTest++ test's TAP report in `build/<C>/mtp-reports/<ctest name>.tap` |
-| `--micro-test-plus` | the board support in `micro-os-plus-iii/tests/mtp/`, the tests in `tests/platforms/<p>/tests/mtp-*/`, the CMake block in that `tests.cmake`; the command line (`argv[0]`, `--output-file`) through the registration helpers in `tests/cmake/uos-tests-run.cmake` (marked `SCAFFOLD µTest++`), and for a Cortex-M platform's inline QEMU `add_test` |
+| `--micro-test-plus` | the board support in `micro-os-plus-iii/tests/mtp/`, the tests in `tests/platforms/<p>/tests/mtp-*/`, the CMake block in that `tests.cmake`; the command line (`argv[0]`, `--output-file`) through the registration helpers in `tests/cmake/uos-tests-run.cmake` (marked `SCAFFOLD µTest++`), and for a Cortex-M platform's inline QEMU `add_test`. A µTest++ test not named `mtp-*` opts in with `set_property (GLOBAL APPEND PROPERTY UOS_MTP_APPS <name>)` |
 | `--stdcpp` | `third_party/stateos-stdc++/`, wired in each platform's `tests/tests.cmake`; `mtp-stdcpp` where µTest++ is |
 | Local tests | `scripts/local-tests.txt` and `tests.local.cmake` (below) |
 
@@ -136,7 +136,7 @@ Verified (2026-11-24) with the six workspaces of `micro-os-scaffold-ctest-exampl
 build; every QEMU case passes (Pi 4 B 7/7 with `mtp-eth-net` skipped under QEMU as designed,
 Zero 2 W AArch64 4/4, AArch32 5/5, Pico 2 `smp-stdcpp-test` 1/1); the µTest++ TAP reports and
 `argv` arrive. On the boards: Pi 4 B 7/7 hardware cases, Pico 2 6/6 (`mtp-smp` speed-up 3.85x
-and 1.99x, `mtp-stdcpp` 75/75 on both). The WeAct workspaces and the two Zero 2 W
+and 1.99x, `mtp-stdcpp` 75/75 on both), and both WeAct workspaces 8/8. The two Zero 2 W
 `smp-mat-test` workspaces have not yet been re-run on their boards.
 Two workspaces added later the same day:
 
@@ -222,7 +222,7 @@ so a new folder or file is picked up without removing the build tree.
 | To add | Put it in | Picked up by |
 | --- | --- | --- |
 | a test for one board | a folder `micro-os-plus-iii/tests/platforms/<platform>/tests/<name>/` with its `.cpp` files (`os_main ()`; copy an existing test for the start-up) | the builder, `tests/board-tests/CMakeLists.txt`: one test per folder that has `.cpp` files, registered as `<platform>-<name>-qemu`/`-hwd` |
-| a µTest++ test | a folder named `mtp-<name>/` there (copy `mtp-example/`): suites are `mt::static_suite` objects, one per file | the µTest++ block of `tests.cmake` links the framework into every `mtp-*` folder |
+| a µTest++ test | a folder named `mtp-<name>/` there (copy `mtp-example/`): suites are `mt::static_suite` objects, one per file | the µTest++ block of `tests.cmake` links the framework into every `mtp-*` folder. A µTest++ test with another name links `uos-micro-test-plus` from its libraries hook, and gets the runner's command line (`argv[0]`, `--output-file <report>`) with `set_property (GLOBAL APPEND PROPERTY UOS_MTP_APPS <name>)` in `tests.cmake` or `tests.local.cmake` |
 | more files in a test | `.cpp` files in the test's folder; headers beside them (`-I.`) | the glob `*.cpp` |
 | a test's build settings (defines, extra sources, include folders, libraries, linker script, CPU count, the QEMU image's replacements, the SD driver) | the hooks in `.../platforms/<platform>/tests/tests.cmake`: `board_test_defines`, `_sources`, `_includes`, `_libs`, `_linker`, `_options`, `_ncpu`, `_qemu_libs`, `_qemu_sources`, `_qemu_includes`, `_sd_posix`; lists `BOARD_TEST_HWD_ONLY`, `UOS_TESTS_STORAGE` (the SD card at `/sd/`) | the builder calls each hook with the test's name |
 | the same for a test you want kept across re-scaffolds | `tests.local.cmake` next to `tests.cmake`, as `<hook>_local` functions, and the test's name in `scripts/local-tests.txt` | the generated hooks ask the `_local` twins first (see "Local tests") |
