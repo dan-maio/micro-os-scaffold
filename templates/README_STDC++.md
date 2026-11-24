@@ -393,7 +393,8 @@ threads really run in parallel. Run it with `./run.sh mtp-stdcpp` (QEMU) or
   `<semaphore>` are the package's versions. The library also defines
   `_GLIBCXX_HAS_GTHREADS=1`, which switches on the thread parts of libstdc++.
 - **Threads.** A `std::thread` is an `os::rtos::thread` created on the free store with
-  normal priority and a fixed stack: **16 KiB on AArch64, 4 KiB elsewhere**. A detached
+  normal priority and one stack size for all threads: **16 KiB on AArch64, 4 KiB
+  elsewhere**, unless the test defines `STATEOS_STDCPP_THREAD_STACK_BYTES`. A detached
   thread is remembered (up to eight at a time) and deleted once the kernel reports it
   finished.
 - **Clocks.** `steady_clock` and `system_clock` both read the kernel's system clock:
@@ -409,12 +410,17 @@ The package's own `third_party/stateos-stdc++/README.md` describes each file.
 
 ## 8. Limits and rules
 
-1. **Fixed thread stacks.** `std::thread` cannot choose its stack size, priority or core.
-   When you need them, create an `os::rtos::thread` with `thread::attributes`
-   (`th_stack_size_bytes`, `th_priority`, `th_cpu_affinity`). Mixing both kinds of thread
-   in one program is fine.
-2. **Deep recursion or big local arrays** in a `std::thread` body need more than 4 KiB on
-   Cortex-M: move the data to the heap, or use an `os::rtos::thread`.
+1. **One stack size for every `std::thread`.** A `std::thread` cannot choose its own stack
+   size, priority or core. The size for the whole test is set at build time:
+   `STATEOS_STDCPP_THREAD_STACK_BYTES=16384` in the test's defines (for example a
+   `board_test_defines_local` branch in `tests.local.cmake`). For a different size, priority
+   or core per thread, create an `os::rtos::thread` with `thread::attributes`
+   (`th_stack_size_bytes`, `th_priority`, `th_cpu_affinity`), or change them from inside
+   the thread (`os::rtos::this_thread::thread ().cpu_affinity (...)`). Mixing both kinds of
+   thread in one program is fine.
+2. **Deep recursion or big local arrays** in a `std::thread` body need more than the default
+   4 KiB on Cortex-M and AArch32: raise `STATEOS_STDCPP_THREAD_STACK_BYTES`, move the data to
+   the heap, or use an `os::rtos::thread`.
 3. **No exceptions.** These builds have none, so an error that the standard reports by
    throwing (for example `std::future_error` from a second `get ()`) ends the program.
    Check before you call.
@@ -460,7 +466,7 @@ And kernel objects can be used next to standard ones in the same program: a
 | --- | --- |
 | `std::thread` does not compile: `'thread' is not a member of 'std'` | the test does not link `stateos-stdc++` (section 3), so the define and the include order are missing |
 | `stateos-stdc++ not found at .../third_party/stateos-stdc++` at configure time | the workspace was scaffolded without `--stdcpp`, or the folder was removed |
-| A crash inside a `std::thread` | its 4 KiB stack (Cortex-M) overflowed (rule 2) |
+| A crash inside a `std::thread` | its 4 KiB stack (Cortex-M, AArch32) overflowed (rule 2): raise `STATEOS_STDCPP_THREAD_STACK_BYTES` |
 | A two-core counter is sometimes short on a Pico 2 | `std::atomic::fetch_add` across cores (rule 5) |
 | A wait times out early | timeouts are in 1 ms ticks (rule 6) |
 | `static_assert` in `gthread.cc` about sizes | a kernel object grew past the storage the header reserves: update `__GTHREAD_STORAGE_BYTES` in `include/bits/gthr-default.h` |

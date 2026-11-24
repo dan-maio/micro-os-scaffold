@@ -1790,6 +1790,7 @@ on 2026-11-24, the hand-made tests as local tests:
 | `rpi-zero-2w-aarch32` | `aarch32-rpi-zero-2w.smp-mat-test` | µTest++, stdc++ | — | 5/5 |
 | `luckfox-lyra` (added later) | `aarch32-luckfox-lyra` (all 21 tests) | µTest++ | — | hardware only |
 | `rpi-zero-2w-aarch64-usb-stdcpp` (added later) | `aarch64-rpi-zero-2w.usb_test`, `.sd_test` | µTest++, stdc++ | `usb-sd-stdcpp` | 7/7 (the USB tests SKIP: no device mode) |
+| `rpi-zero-2w-aarch32-usb-stdcpp` (added later) | `aarch32-rpi-zero-2w.usb_test`, `.sd_test` | µTest++, stdc++ | `usb-sd-stdcpp`, `keep` of the 10000 kHz `bcm2837-aarch32.cfg` | 7/7 (the USB tests SKIP) |
 
 Each nested workspace now has its own `third_party/stateos-stdc++` (the `--stdcpp` copy)
 instead of a link to a shared copy at the repository root.
@@ -1802,6 +1803,7 @@ On the boards (2026-11-24):
 | `pico2-smp-stdcpp` | 6/6 | `mtp-smp` 71/71, speed-up 1.99x; `mtp-stdcpp` and `smp-stdcpp-test` 75/75; `mtp-args` 10/10 after the `--wrap=main` fix |
 | `luckfox-lyra` | 21/21 classic; µTest++ 3/3 | `mtp-args` 10/10, `mtp-example` 27/27, `mtp-smp` 75/75 (speed-up 2.88x on 3 cores), with the `openocd.cfg` fix below |
 | `rpi-zero-2w-aarch64-usb-stdcpp` | `usb-sd-stdcpp` | `host_xfer.py` 0 B to 1 MiB: PUT, GET, LIST and CRCs pass, 19 commands, 4 cores active, `RESULT: PASS`, after the USB driver fix below |
+| `rpi-zero-2w-aarch32-usb-stdcpp` | `usb-sd-stdcpp` | the same in AArch32 (3.5 s for the matrix); a random 1 MiB file byte for byte; confirms the AArch32 driver's fix |
 
 The first Pico 2 run found that its `boot.S` calls `main (0, NULL)`, so `mtp-args` saw
 `argc=0`; the µTest++ support's `__wrap_main` (13.x) fixed it. The WeAct and Zero 2 W
@@ -1848,7 +1850,15 @@ package's `usb_dwc2::ep_read ()`:
 
 The source now receives each chunk into a 64-byte-aligned driver buffer
 (micro-os-plus-iii-devices-bcm283x `027acb3`, AArch64 and AArch32). On the
-board the full matrix and a random 1 MiB file then pass.
+board the full matrix and a random 1 MiB file then pass, in AArch64 and in AArch32
+(`rpi-zero-2w-aarch32-usb-stdcpp`).
+
+The AArch32 run needed bigger `std::thread` stacks. The bundled stdc++ package
+gives every `std::thread` 16 KiB on AArch64 but 4 KiB elsewhere, which is too
+small for the sd and usb threads. The package now reads
+`STATEOS_STDCPP_THREAD_STACK_BYTES`, and the defaults are unchanged without it.
+The AArch32 test sets 16384 in its `tests.local.cmake`, and
+`templates/README_STDC++.md` (rules 1 and 2) documents the define.
 
 # 15. Rules, invariants and design philosophy
 

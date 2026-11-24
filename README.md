@@ -107,6 +107,10 @@ Two workspaces added later the same day:
   it reported `RESULT: PASS`. On its way it found a bcm283x USB driver bug: DMA into a
   caller's buffer that shares cache lines lost the last 48 bytes of 1 MiB transfers. It is
   fixed in the source device package (`027acb3`).
+- `rpi-zero-2w-aarch32-usb-stdcpp`: the same test on the AArch32 Zero 2 W. It passes the full
+  matrix and a random 1 MiB file, which confirms the AArch32 driver's fix. Its `std::thread`
+  stacks are 16 KiB, through the stdc++ package's new `STATEOS_STDCPP_THREAD_STACK_BYTES`
+  define (the default is 4 KiB outside AArch64).
 
 ## Local tests (`scripts/local-tests.txt`)
 
