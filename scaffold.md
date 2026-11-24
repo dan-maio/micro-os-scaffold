@@ -1384,6 +1384,7 @@ Lessons from that integration, now built into the scaffolder:
 - the build is strict C++20, which hides `fopencookie ()` and `sbrk ()`: `_GNU_SOURCE`;
 - newlib has no `CLOCK_MONOTONIC`: no µTest++ timings;
 - µTest++ opens the report file with `fopen ()`; the support wraps it (`-Wl,--wrap=fopen`) over the semihosting file calls, so no board needs `_open ()`;
+- on Cortex-M the support also wraps `main` (`-Wl,--wrap=main`): a board whose reset code calls `main (0, NULL)` and skips the kernel's `startup ()` (the Pico 2's `boot.S`) would never read the command line; `__wrap_main` asks the debugger for it when `argc` is 0, so `os_main ()` gets the arguments;
 - QEMU drops semihosting `SYS_WRITE` on handle 1: the support uses `SYS_WRITE0`;
 - the build has no exceptions: tests use `expect`, never `require`;
 - µTest++ compares `const char*` as C strings: compare addresses as `std::uintptr_t`
@@ -1790,6 +1791,17 @@ on 2026-11-24, the hand-made tests as local tests:
 
 Each nested workspace now has its own `third_party/stateos-stdc++` (the `--stdcpp` copy)
 instead of a link to a shared copy at the repository root.
+
+On the boards (2026-11-24):
+
+| Workspace | Hardware cases | Highlights |
+| --- | --- | --- |
+| `rpi4b-smp` | 7/7 | `mtp-smp` 78/78, speed-up 3.85x; `mtp-stdcpp` and `smp_test4` 75/75; `mtp-eth-net` 25/25 |
+| `pico2-smp-stdcpp` | 6/6 | `mtp-smp` 71/71, speed-up 1.99x; `mtp-stdcpp` and `smp-stdcpp-test` 75/75; `mtp-args` 10/10 after the `--wrap=main` fix |
+
+The first Pico 2 run found that its `boot.S` calls `main (0, NULL)`, so `mtp-args` saw
+`argc=0`; the µTest++ support's `__wrap_main` (13.x) fixed it. The WeAct and Zero 2 W
+workspaces have not yet been re-run on the boards.
 
 # 15. Rules, invariants and design philosophy
 

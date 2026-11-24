@@ -395,4 +395,6 @@ Verification done (section 9): 1 (validation), 2 (`./run.sh list` marks `L`, the
 includes the local tests), 4 and 6 (round trips, `weactf411-spi-stdcpp` and `rpi4b-smp`,
 byte-identical; `smp_test4` replaces the shared test and passes 75/75 under QEMU), 5 (failure
 injected between stash and restore). 7 does not apply (no previous new-layout pipeline to
-compare with). 8 and 9 (boards) are pending.
+compare with). 9 (boards), 2026-11-24: on the Pi 4 B `smp_test4` (local) passed 75/75 and
+`mtp-stdcpp` 75/75; on the Pico 2 `smp-stdcpp-test` (local) passed 75/75 and `mtp-stdcpp`
+75/75, both from the local list by default (`./run.sh --hwd-only`). 8 (WeAct) is pending.

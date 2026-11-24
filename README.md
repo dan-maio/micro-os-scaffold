@@ -97,7 +97,8 @@ node bin/scaffold.js /path/to/output \
 Verified (2026-11-24) with the six workspaces of `micro-os-scaffold-ctest-examples`: all
 build; every QEMU case passes (Pi 4 B 7/7 with `mtp-eth-net` skipped under QEMU as designed,
 Zero 2 W AArch64 4/4, AArch32 5/5, Pico 2 `smp-stdcpp-test` 1/1); the µTest++ TAP reports and
-`argv` arrive. Hardware runs of the re-scaffolded workspaces are pending.
+`argv` arrive. On the boards: Pi 4 B 7/7 hardware cases, Pico 2 6/6 (`mtp-smp` speed-up 3.85x
+and 1.99x, `mtp-stdcpp` 75/75 on both); the WeAct and Zero 2 W workspaces are not yet re-run.
 
 ## Local tests (`scripts/local-tests.txt`)
 
@@ -876,7 +877,9 @@ line. On a probe this is `arm semihosting_cmdline <app> --output-file <path>`; u
 QEMU it is `-semihosting-config enable=on,target=native,arg=<app>,arg=--output-file,arg=<path>`.
 On the host the same two arguments are the process arguments. The complete TAP report
 is written through semihosting, without any board needing `_open()`/`_write()`:
-`-Wl,--wrap=fopen` sends the reporter's `fopen()` to `mtp_semihosting::open()`.
+`-Wl,--wrap=fopen` sends the reporter's `fopen()` to `mtp_semihosting::open()`. On Cortex-M,
+`-Wl,--wrap=main` gives `os_main()` the debugger's command line on a board whose reset code
+calls `main (0, NULL)` itself (the Pico 2's `boot.S`).
 
 ```bash
 node bin/scaffold.js ../ws-pico2 --select cortexm-pico2.smp-mat-test \
