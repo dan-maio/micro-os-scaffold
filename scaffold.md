@@ -1811,11 +1811,13 @@ SVC vector catch while OpenOCD reported it running, and a single poll served the
 a fix, `mtp-args` and a 32 KiB semihosting file test hung until the CTest timeout. The old
 layout failed the same way, with the same OpenOCD (0.12.0-7.1) and the WCH-Link.
 
-The workspace's `openocd.cfg` adds a self-rescheduling Tcl timer that polls core 0 every
-100 ms (`uos_semihosting_kick`), and `scripts/local-tests.txt` keeps the file (`keep ...`).
+The fix, a self-rescheduling Tcl timer in `openocd.cfg` that polls core 0 every 100 ms
+(`uos_semihosting_kick`), went first into the workspace as a kept local file, then into the
+source repository (micro-os-plus-iii commit `06d365fe`). The workspace was then re-scaffolded
+without the `keep`.
 Each semihosting call still costs about 0.55 s through the WCH-Link's USB HID transfers,
 whatever the timer interval, so a µTest++ test takes minutes there: `mtp-args` 148 s,
-`mtp-example` 196 s, `mtp-smp` 378 s. The source repository's `openocd.cfg` is unchanged.
+`mtp-example` 196 s, `mtp-smp` 378 s.
 
 # 15. Rules, invariants and design philosophy
 
