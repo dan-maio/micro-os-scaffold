@@ -9,6 +9,11 @@ In a CMake workspace the kernel and ports are consumed as **source-level INTERFA
 (`add_subdirectory`), never as pre-built libraries. Cargo workspaces use path dependencies and
 Zig workspaces use `build.zig.zon` path dependencies.
 
+The repository is on GitHub, `dan-maio/micro-os-scaffold`, with a local bare backup;
+`WORKING-WITH-REMOTE.md` describes cloning, pulling and pushing. The example workspaces are
+in `dan-maio/micro-os-scaffold-ctest-examples`, and the µOS++ III SMP source in
+`dan-maio/micro-os-plus-iii-smp2`.
+
 ## Requirements
 
 - Node.js 18 or newer (no npm packages are installed; everything uses the Node standard library).
