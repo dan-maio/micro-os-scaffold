@@ -19,6 +19,44 @@ The tool locator reports anything missing instead of inventing a path.
 
 ## Quick start
 
+### The current source layout (`micro-os-plus-iii/tests/`)
+
+```bash
+# What is in the source: platforms, their tests, configurations (read-only)
+node bin/scaffold.js discover --source /home/dan/Desktop/micro-os-plu-iii-smp-pr-github
+
+# One test from a local folder (the folder that holds micro-os-plus-iii/,
+# aarch64/, cortexm/, common/, ...)
+node bin/scaffold.js /path/to/output \
+  --source /home/dan/Desktop/micro-os-plu-iii-smp-pr-github \
+  --select aarch64-rpi4b.smp_test0 --yes
+
+# A whole platform, plus µTest++ and the StateOS stdc++ package
+node bin/scaffold.js /path/to/output \
+  --source /home/dan/Desktop/micro-os-plu-iii-smp-pr-github \
+  --select cortexm-weactf411 \
+  --micro-test-plus https://github.com/micro-os-plus/micro-test-plus-xpack.git \
+  --micro-test-plus-ref v6.0.0 --stdcpp --yes
+
+# The same from git: the kernel, the port and the device packages the
+# platform needs, comma-separated, and the branch
+node bin/scaffold.js /path/to/output \
+  --source file:///home/dan/Downloads/GIT/micro-os-plu-iii-smp-pr-local/micro-os-plus-iii.git,file:///home/dan/Downloads/GIT/micro-os-plu-iii-smp-pr-local/micro-os-plus-iii-aarch64.git,file:///home/dan/Downloads/GIT/micro-os-plu-iii-smp-pr-local/micro-os-plus-iii-devices-bcm283x.git,file:///home/dan/Downloads/GIT/micro-os-plu-iii-smp-pr-local/micro-os-plus-iii-devices-storage.git \
+  --branch align/smp-upstream \
+  --select aarch64-rpi4b.smp_test0 --yes
+
+# Then, in the workspace
+cd /path/to/output
+./run.sh list      # build, list the CTest cases
+./run.sh           # build, run the selected tests (no hardware cases)
+```
+
+`--select` takes `<platform>` (all its tests) or `<platform>.<test>`, or the ids `discover`
+prints, comma-separated. The section "The restructured source" below has the details. The
+sections after it cover local tests, adding code, and configuring, building and running.
+
+### The old layout (sibling `micro-os-plus-iii-smp` and port repositories)
+
 ```bash
 # List the architectures, boards and tests found in a workspace (read-only)
 node bin/scaffold.js discover --source /path/to/micro-os-plus-workspace
@@ -112,6 +150,25 @@ Two workspaces added later the same day:
   stacks are 16 KiB, through the stdc++ package's new `STATEOS_STDCPP_THREAD_STACK_BYTES`
   define (the default is 4 KiB outside AArch64).
 
+### From git
+
+`--source` also takes comma-separated git URLs (`https://`, `ssh://`, `git@host:`, `file://`),
+with `--branch` (or `url#branch` per repository). They are cloned as siblings into a cache
+(`~/.cache/micro-os-scaffold/`, or `SCAFFOLD_CACHE`), refreshed on every run, and the
+workspace mirrors that flat layout (`micro-os-plus-iii-aarch64/` beside the kernel rather
+than `aarch64/micro-os-plus-iii-aarch64/`). List the kernel, the port and every device
+package the platform's `cmake/dependencies-folders.cmake` names. `discover --source <urls>`
+shows what was found.
+
+`micro-os-plus-iii/tests/xpacks/` is git-ignored, so a clone has none of the packages that
+`xpm install` puts there. The scaffolder copies each one `tests/package.json` declares
+(build-helper, chan-fatfs, the CMSIS RTOS validator) from the xPack store
+(`~/.local/xPacks`), at the declared version. If one is not installed, it prints a warning:
+run `xpm install` once in any checkout of `micro-os-plus-iii/tests`.
+
+`scaffold.json` records the URLs and the branch. A re-scaffold without `--source` fetches
+them again, and the workspace README's "Regenerate" command repeats them.
+
 ## Local tests (`scripts/local-tests.txt`)
 
 A test added by hand to a workspace survives a re-scaffold when it is listed in
@@ -155,6 +212,70 @@ keep third_party/my-lib         # any other file or folder, kept as it is
   package is allowed, with a warning on every run (source updates of it are not applied).
 - `scaffold.json` records them under `localTests` (informational; the list is the source of
   truth).
+
+## Adding code to a workspace (current layout)
+
+Everything a test is built from is inside the workspace. `./run.sh` re-runs CMake each time,
+so a new folder or file is picked up without removing the build tree.
+
+| To add | Put it in | Picked up by |
+| --- | --- | --- |
+| a test for one board | a folder `micro-os-plus-iii/tests/platforms/<platform>/tests/<name>/` with its `.cpp` files (`os_main ()`; copy an existing test for the start-up) | the builder, `tests/board-tests/CMakeLists.txt`: one test per folder that has `.cpp` files, registered as `<platform>-<name>-qemu`/`-hwd` |
+| a µTest++ test | a folder named `mtp-<name>/` there (copy `mtp-example/`): suites are `mt::static_suite` objects, one per file | the µTest++ block of `tests.cmake` links the framework into every `mtp-*` folder |
+| more files in a test | `.cpp` files in the test's folder; headers beside them (`-I.`) | the glob `*.cpp` |
+| a test's build settings (defines, extra sources, include folders, libraries, linker script, CPU count, the QEMU image's replacements, the SD driver) | the hooks in `.../platforms/<platform>/tests/tests.cmake`: `board_test_defines`, `_sources`, `_includes`, `_libs`, `_linker`, `_options`, `_ncpu`, `_qemu_libs`, `_qemu_sources`, `_qemu_includes`, `_sd_posix`; lists `BOARD_TEST_HWD_ONLY`, `UOS_TESTS_STORAGE` (the SD card at `/sd/`) | the builder calls each hook with the test's name |
+| the same for a test you want kept across re-scaffolds | `tests.local.cmake` next to `tests.cmake`, as `<hook>_local` functions, and the test's name in `scripts/local-tests.txt` | the generated hooks ask the `_local` twins first (see "Local tests") |
+| the StateOS stdc++ package in a test | return `stateos-stdc++` from the libraries hook (scaffolded with `--stdcpp`); `STATEOS_STDCPP_THREAD_STACK_BYTES` sets the `std::thread` stack | `templates/README_STDC++.md` |
+| board code (drivers, start-up) | `.../platforms/<platform>/src/`, `include/`; the board facts in `cmake/board.cmake` | the platform library |
+| a shared test for several boards | `micro-os-plus-iii/tests/sources/<name>/`, named in each platform's `UOS_TESTS_SOURCES` (and `UOS_TESTS_PORTABLE` for an `os_main ()`-only test) | the builder |
+| kernel or port code | `micro-os-plus-iii/src/`, `include/`; `<arch>/micro-os-plus-iii-<arch>/src/`, `include/` (new kernel files also go into the kernel's `CMakeLists.txt` `target_sources`) | the CMake INTERFACE libraries |
+| a device driver | the device package (`common/micro-os-plus-iii-devices-bcm283x/`, ...) | the platform's `cmake/dependencies-folders.cmake` names it |
+
+Code you change outside a local test is overwritten by the next re-scaffold. Keep it in the
+source repository, or list the path as `keep <path>` in `scripts/local-tests.txt`.
+
+## Configuring, building and running (current layout)
+
+Everything goes through `./run.sh` at the workspace root:
+
+```bash
+./run.sh list                 # build, then list the CTest cases (* selected, L local)
+./run.sh                      # build, then run the selected tests (no hardware cases)
+./run.sh <test>               # one test, by folder name (all its cases)
+./run.sh --hwd                # the selected tests, hardware cases included
+./run.sh --hwd-only <test>    # only the hardware case(s)
+./run.sh all                  # every registered case
+./run.sh build                # configure + build only
+./run.sh clean                # remove the build tree
+./run.sh -c <configuration>   # another configuration of micro-os-plus-iii/tests/package.json
+./run.sh -R <regex> -v        # a CTest expression, verbose output
+```
+
+What it does:
+
+1. links the workspace's package copies into
+   `micro-os-plus-iii/tests/build/<configuration>/xpacks/@micro-os-plus/`, and the
+   configuration's pinned tools (compiler, CMake, Ninja, QEMU, OpenOCD) into its
+   `xpacks/.bin`, first on `PATH`; it never runs `xpm link`;
+2. runs, from `micro-os-plus-iii/tests/`,
+   `cmake -S . -B build/<configuration> -G Ninja -D CMAKE_BUILD_TYPE=... -D PLATFORM_NAME=<platform> -D CMAKE_TOOLCHAIN_FILE=...`,
+   then `cmake --build`;
+3. runs CTest on the selected cases.
+
+| Setting | How |
+| --- | --- |
+| extra CMake options (a cache variable, a define) | `UOS_CMAKE_ARGS='-D WIFI_TEST_SSID=x -D FOO=1' ./run.sh build` |
+| the probe | `PROBE=jlink\|olimex\|cmsis-dap` (AArch Pi boards); `UOS_HW_ADAPTER_SERIAL=<serial>` when several CMSIS-DAP probes are attached |
+| the JTAG/SWD clock | `UOS_HW_ADAPTER_KHZ=<kHz>`, or the platform's OpenOCD `.cfg` (keep a changed one with `keep`) |
+| tool and library paths | `scripts/env.sh` (generated; override any variable in the environment) |
+
+Results:
+- `micro-os-plus-iii/tests/build/<configuration>/ctest.xml` (JUnit);
+- `ctest.log` (the full output);
+- `mtp-reports/<ctest name>.tap` (a µTest++ test's complete report).
+
+A hardware case needs the board and the probe. CTest runs OpenOCD with the platform's
+configuration, and the test's `RESULT:` line, through semihosting, is the verdict.
 
 ## What a generated workspace gives you
 
@@ -551,7 +672,11 @@ hook names from the port's own `test/CMakeLists.txt` (they differ between ports,
 `board_test_libs` on Cortex-M and `board_test_libraries` on the POSIX port), so every snippet
 can be pasted as written.
 
-## Adding files, devices, boards and tests
+## Adding files, devices, boards and tests (old layout)
+
+This chapter is for workspaces scaffolded from the old layout (`<port>/test/<board>/`,
+`tests/run.sh`). For the current layout, see "Adding code to a workspace (current layout)"
+above.
 
 The generated workspace is ordinary CMake source. Nothing is installed as a
 pre-built library: the kernel and each port export INTERFACE targets whose

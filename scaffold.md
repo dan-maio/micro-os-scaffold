@@ -1860,6 +1860,45 @@ small for the sd and usb threads. The package now reads
 The AArch32 test sets 16384 in its `tests.local.cmake`, and
 `templates/README_STDC++.md` (rules 1 and 2) documents the define.
 
+## 14.5 Sources from git
+
+`--source` takes comma-separated git URLs, with `--branch`. `lib/source.js` clones them as
+siblings into `~/.cache/micro-os-scaffold/<hash>/` (or `SCAFFOLD_CACHE`) and refreshes them
+on every run. The new-layout discovery finds packages both beside the kernel (a clone) and
+one folder deeper (`<arch>/micro-os-plus-iii-<arch>/`, the source workspace). The workspace
+mirrors whichever layout the source has.
+
+A clone has no `micro-os-plus-iii/tests/xpacks/`: the folder is git-ignored and filled by
+`xpm install`. `materializeTestXpacks ()` copies each package `tests/package.json` declares
+(build-helper, chan-fatfs, the CMSIS RTOS validator) from the xPack store, at the declared
+version, and warns about any that is not installed. `scaffold.json` records `sourceUrl` and
+`sourceBranch`, so a re-scaffold without `--source` clones the same repositories again, and
+the README's Regenerate command names them.
+
+Checked (2026-11-24):
+- the Pi 4 B `smp_test0` scaffolded from four `file://` URLs of the local bare repositories
+  (the kernel, the AArch64 port, the bcm283x and storage device packages), branch
+  `align/smp-upstream`;
+- the three tests xpacks copied from the store, the build passed, and the QEMU case passed;
+- a re-scaffold without options fetched the four repositories again.
+
+## 14.6 Adding code, configuring, building and running
+
+The README's sections "Adding code to a workspace (current layout)" and "Configuring,
+building and running (current layout)" are the reference. In short:
+
+- a board test is a folder `micro-os-plus-iii/tests/platforms/<platform>/tests/<name>/`;
+  a µTest++ test is a folder named `mtp-<name>`;
+- its build settings are the hooks in that folder's `tests.cmake`, or, for a test kept
+  across re-scaffolds, the `<hook>_local` twins in `tests.local.cmake`, with the name in
+  `scripts/local-tests.txt`;
+- `./run.sh` configures, builds and runs, with the configuration's own CMake command;
+- `UOS_CMAKE_ARGS` passes extra CMake options; `PROBE`, `UOS_HW_ADAPTER_SERIAL` and
+  `UOS_HW_ADAPTER_KHZ` select the probe and its clock;
+- the results are `ctest.xml`, `ctest.log` and `mtp-reports/` in the build folder.
+
+The workspace's own README repeats this for its platform and tests.
+
 # 15. Rules, invariants and design philosophy
 
 ## 15.1 Source repositories are read-only

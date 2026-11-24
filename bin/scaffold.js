@@ -406,6 +406,8 @@ async function commandScaffold(options) {
   if (isV2Source(source)) {
     return v2.scaffoldCommandV2(options, {
       source,
+      sourceUrl: resolved.url ?? null,
+      sourceBranch: resolved.branch ?? null,
       destination,
       previous,
       generator: { name: PACKAGE.name, version: PACKAGE.version, cli: path.resolve(process.argv[1]) },
