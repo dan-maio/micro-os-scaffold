@@ -26,13 +26,14 @@ specifics, how to use the tool, and how to extend a test application locally.
 11. How to use the scaffolder
 12. Extending a test application locally
 13. µTest++ tests (`--micro-test-plus`)
-14. Rules, invariants and design philosophy
-15. Troubleshooting
-16. The current trial workspaces
-17. Limitations and future work
-18. Glossary
-19. Appendix A: typical lean layouts
-20. Appendix B: command cheat sheet
+14. The restructured source and local tests
+15. Rules, invariants and design philosophy
+16. Troubleshooting
+17. The current trial workspaces
+18. Limitations and future work
+19. Glossary
+20. Appendix A: typical lean layouts
+21. Appendix B: command cheat sheet
 
 ---
 
@@ -1684,16 +1685,122 @@ package's mutexes or `mtp_board::atomic_add ()`.
 
 ---
 
-# 14. Rules, invariants and design philosophy
+# 14. The restructured source and local tests
 
-## 14.1 Source repositories are read-only
+## 14.1 The new layout
+
+On 2026-11-24 the source workspace (`/home/dan/Desktop/micro-os-plu-iii-smp-pr-github`,
+branch `align/smp-upstream`) was restructured, with names changed and the
+configuration/build/run model changed:
+
+| Old layout | New layout |
+| --- | --- |
+| kernel `micro-os-plus-iii-smp/`, harness in `test_smpl/` and in each port | kernel `micro-os-plus-iii/`; the whole harness is `micro-os-plus-iii/tests/` |
+| ports `micro-os-plus-iii-<arch>/` beside the kernel | ports `<arch>/micro-os-plus-iii-<arch>/`; device packages `<dir>/micro-os-plus-iii-devices-*/` |
+| a board: `<port>/test/boards/<board>/` + `<port>/test/<board>/<test>/` | a platform: `micro-os-plus-iii/tests/platforms/<platform>/` (`cmake/board.cmake`, `include/`, `src/`, `device/linker-scripts/`, `openocd.cfg`, `tests/<test>/`, `tests/tests.cmake`) |
+| per-port test builder `<port>/test/CMakeLists.txt` | one builder, `tests/board-tests/CMakeLists.txt`, same hooks plus `board_test_sd_posix` |
+| shell runners (`run-qemu.sh`, `run-hw.sh`, `hw.sh`) | CTest runs QEMU and OpenOCD itself: `tests/cmake/uos-tests-run.cmake` (`uos_tests_add_qemu`, `_hwd`, `_openocd`, `_host`), labels `qemu`, `hwd`, `hwd-reset`, `host` |
+| scaffolder's own configure command | xpm configurations in `tests/package.json` (`inherit` fragments), packages linked into `build/<C>/xpacks/@micro-os-plus/` by `xpm link` |
+| shared tests in the kernel's `test_smpl/` | `tests/sources/<test>/`, chosen per platform by `UOS_TESTS_SOURCES`, `UOS_TESTS_PORTABLE`, `UOS_TESTS_STORAGE`, `UOS_TESTS_SUITES` |
+
+The analysis is `docs/specs/2026-11-24-new-source-layout-analysis.md`. The scaffolder detects
+the new layout (`isV2Source ()`: `micro-os-plus-iii/tests/platforms/`, `board-tests/`,
+`package.json`) and runs the pipeline in `lib/v2/`:
+
+| Module | Does |
+| --- | --- |
+| `discover.js` | the kernel, the packages, the platforms (own tests, shared tests, packages, xpacks, QEMU/hardware registration), the configurations of `tests/package.json` with their `inherit` chain |
+| `scaffold.js` | selection, configurations, the copy (kernel complete, git-ignored folders and tool links left out), the lean pruning, `run.sh`, `scripts/env.sh`, `scaffold.json` |
+| `micro-test-plus.js`, `stdcpp.js` | the options, with the same rule and board support as the old pipeline (13.x) |
+| `local.js` | local tests (14.3) |
+| `readme.js`, `readme-options.js` | the workspace README |
+| `cli.js` | `discover` and the scaffold command |
+
+## 14.2 The workspace and `run.sh`
+
+```text
+<workspace>/
+  micro-os-plus-iii/            kernel, complete; tests/ pruned to the selection
+    tests/platforms/<p>/        the selected platform(s)
+    tests/mtp/                  µTest++ board support (--micro-test-plus)
+    tests/build/<C>/            build trees (not in git)
+  <arch>/micro-os-plus-iii-*/   the port and device packages the platform names
+  third_party/                  micro-test-plus/, stateos-stdc++/ (options)
+  run.sh                        the one entry point
+  scripts/env.sh                tool and library paths (generated)
+  scripts/local-tests.txt       local tests (user-owned, optional)
+  scaffold.json, README.md
+```
+
+`./run.sh` does what `xpm run prepare/build/test --config <C>` does, without `xpm link` (which
+would retarget the machine-wide registrations):
+
+1. links each package the platform names, relative, into
+   `micro-os-plus-iii/tests/build/<C>/xpacks/@micro-os-plus/<name>`; the per-configuration
+   library `@xpacks/arm-cmsis` from the xPack store (`UOS_LIB_ARM_CMSIS` in `scripts/env.sh`);
+   the configuration's pinned tools (compiler, QEMU, OpenOCD, CMake, Ninja) into
+   `build/<C>/xpacks/.bin`, first on `PATH`;
+2. runs, from `micro-os-plus-iii/tests/`, `cmake -S . -B build/<C> -G Ninja -D CMAKE_BUILD_TYPE=...
+   -D PLATFORM_NAME=<p> -D CMAKE_TOOLCHAIN_FILE=xpacks/@micro-os-plus/build-helper/cmake/toolchains/<file>`
+   (extra options: `UOS_CMAKE_ARGS`), then `cmake --build`;
+3. runs CTest on the selected cases: by default the scaffolded tests and the local ones,
+   without `-hwd` (unless nothing else matches); `--hwd`, `--hwd-only`, `all`, a test folder
+   name, a CTest name, a selection id or `-R <regex>`. The fixtures (`-reset`, `-sd-make`,
+   `-sd-remove`) run by themselves.
+
+A build tree moved with the workspace is detected from its CMake cache and rebuilt.
+
+## 14.3 Local tests
+
+The 2026-11-15 specification (`docs/specs/2026-11-15-local-tests-design.md`) is implemented for
+the new layout. The list is `scripts/local-tests.txt` (beside `run.sh`, where the old layout's
+`tests/scripts/` moved); a local test is a folder `micro-os-plus-iii/tests/platforms/<p>/tests/<name>/`;
+its wiring is `tests.local.cmake` next to `tests.cmake`. The README's "Local tests" chapter has
+the format and the rules. The pipeline:
+
+1. `stash ()`: restore a leftover stash; read and validate the list; move the listed test
+   folders, every `tests.local.cmake` and the `keep` paths to `.scaffold-local-stash/`;
+2. `cleanGenerated ()`: remove what the previous scaffold generated (the kernel copy except its
+   build trees, the package copies, the option packages), so nothing deselected lingers;
+3. copy, prune, options;
+4. `patchHooks ()`: a dispatch to `<hook>_local` at the top of every hook `tests.cmake`
+   defines, and, for the hooks it does not define, a wrapper that asks the twin and then gives
+   the builder's default (copied from `board-tests/CMakeLists.txt`);
+5. `restore ()` (in a `finally`): the local copies back over the generated tree;
+   `preferLocal ()` drops a local test's name from its platform's `UOS_TESTS_*` lists.
+
+Checked: a round trip leaves the local test, its `tests.local.cmake` and the list
+byte-identical; a failure injected between stash and restore leaves them intact and no stash
+folder; the validation rejects a `keep` on a generated path or outside the workspace, a
+starter name, a malformed line.
+
+## 14.4 The examples, re-scaffolded
+
+The six workspaces of `micro-os-scaffold-ctest-examples` were re-scaffolded from the new source
+on 2026-11-24, the hand-made tests as local tests:
+
+| Workspace | Selection | Options | Local tests | QEMU |
+| --- | --- | --- | --- | --- |
+| (root) | `cortexm-weactf411.mos-test1` | µTest++ | — | hardware only |
+| `rpi4b-smp` | `aarch64-rpi4b.clock-test` | µTest++, stdc++ | `smp_test4` | 7/7 (`mtp-eth-net` skips under QEMU) |
+| `pico2-smp-stdcpp` | `cortexm-pico2.smp-test4` | µTest++, stdc++ | `smp-stdcpp-test` | 1/1 (the µTest++ tests are hardware only) |
+| `weactf411-spi-stdcpp` | `cortexm-weactf411.spi-pipeline` | µTest++, stdc++ | `spi-stdcpp-test` | hardware only |
+| `rpi-zero-2w-aarch64` | `aarch64-rpi-zero-2w.smp-mat-test` | µTest++ | — | 4/4 |
+| `rpi-zero-2w-aarch32` | `aarch32-rpi-zero-2w.smp-mat-test` | µTest++, stdc++ | — | 5/5 |
+
+Each nested workspace now has its own `third_party/stateos-stdc++` (the `--stdcpp` copy)
+instead of a link to a shared copy at the repository root.
+
+# 15. Rules, invariants and design philosophy
+
+## 15.1 Source repositories are read-only
 
 The scaffolder reads the source root and writes only to the destination. It
 does not commit, format, patch or delete source files. The generated
 workspace may contain patched copies (for example, a harness path adapted to
 the sibling layout), but the originals are untouched.
 
-## 14.2 The kernel is complete
+## 15.2 The kernel is complete
 
 The kernel is the interface. Keeping it complete means:
 
@@ -1702,31 +1809,31 @@ The kernel is the interface. Keeping it complete means:
 - a test can be written, compiled and debugged without guessing which parts
   of the kernel were removed.
 
-## 14.3 The port is selected, not exhaustive
+## 15.3 The port is selected, not exhaustive
 
 The port contains support for several boards and SoCs. The scaffolder keeps
 the selected board and the source/SoC/include families it actually names. It
 does not keep every board “just in case”.
 
-## 14.4 Tests are named, not globbed
+## 15.4 Tests are named, not globbed
 
 A selected test is copied because it was selected, not because it happened to
 be in a directory. Sibling sources pulled in with `#include "../<app>/..."`
 are kept as helpers and excluded from the test build, so a helper does not
 become an accidental second test.
 
-## 14.5 Every scaffold is build-verified
+## 15.5 Every scaffold is build-verified
 
 A workspace that cannot build is not useful. The tool runs the real build and
 records the result before declaring success.
 
-## 14.6 Reproducibility comes from the manifest
+## 15.6 Reproducibility comes from the manifest
 
 `scaffold.json` records the selection, the tool paths and the configuration.
 Re-running the same command recreates the same workspace, even if the current
 shell environment changes.
 
-## 14.7 Selection ids are convenient, names are stable
+## 15.7 Selection ids are convenient, names are stable
 
 Numeric ids are short and readable, but they are assigned alphabetically. A
 new test shifts later ids. Use `architecture.board.<app-name>` in scripts and
@@ -1734,7 +1841,7 @@ documentation.
 
 ---
 
-# 15. Troubleshooting
+# 16. Troubleshooting
 
 | Symptom | Likely cause | What to do |
 | --- | --- | --- |
@@ -1752,11 +1859,11 @@ documentation.
 
 ---
 
-# 16. The current trial workspaces
+# 17. The current trial workspaces
 
 The four trial workspaces were generated to validate the lean design.
 
-## 16.1 Arm Cortex-M
+## 17.1 Arm Cortex-M
 
 ```text
 /home/dan/Work/micro-os-scaffold-workspace-minimal-arm
@@ -1778,7 +1885,7 @@ node /home/dan/Work/micro-os-scaffold/bin/scaffold.js \
   --lean --yes
 ```
 
-## 16.2 RISC-V VisionFive 2 Lite
+## 17.2 RISC-V VisionFive 2 Lite
 
 ```text
 /home/dan/Work/micro-os-scaffold-workspace-minimal-riscv
@@ -1800,7 +1907,7 @@ node /home/dan/Work/micro-os-scaffold/bin/scaffold.js \
   --lean --yes
 ```
 
-## 16.3 Rust Cortex-M
+## 17.3 Rust Cortex-M
 
 ```text
 /home/dan/Work/micro-os-scaffold-workspace-minimal-rust
@@ -1822,7 +1929,7 @@ node /home/dan/Work/micro-os-scaffold/bin/scaffold.js \
   --lean --yes
 ```
 
-## 16.4 Zig Cortex-M
+## 17.4 Zig Cortex-M
 
 ```text
 /home/dan/Work/micro-os-scaffold-workspace-minimal-zig
@@ -1844,7 +1951,7 @@ node /home/dan/Work/micro-os-scaffold/bin/scaffold.js \
   --lean --yes
 ```
 
-## 16.5 What the trials prove
+## 17.5 What the trials prove
 
 - CMake pruning survives a Cortex-M build and a RISC-V build.
 - Cargo pruning survives a cross-target build.
@@ -1855,7 +1962,7 @@ node /home/dan/Work/micro-os-scaffold/bin/scaffold.js \
 
 ---
 
-# 17. Limitations and future work
+# 18. Limitations and future work
 
 - **Hardware availability.** The tool can build a hardware test without a
   board, but it cannot run it. The trial workspaces were built and verified;
@@ -1882,7 +1989,7 @@ node /home/dan/Work/micro-os-scaffold/bin/scaffold.js \
 
 ---
 
-# 18. Glossary
+# 19. Glossary
 
 | Term | Definition |
 | --- | --- |
@@ -1908,9 +2015,9 @@ node /home/dan/Work/micro-os-scaffold/bin/scaffold.js \
 
 ---
 
-# 19. Appendix A: typical lean layouts
+# 20. Appendix A: typical lean layouts
 
-## 19.1 CMake lean workspace
+## 20.1 CMake lean workspace
 
 ```text
 destination/
@@ -1942,7 +2049,7 @@ destination/
     xpacks/@micro-os-plus/build-helper/
 ```
 
-## 19.2 Cargo lean workspace
+## 20.2 Cargo lean workspace
 
 ```text
 destination/
@@ -1962,7 +2069,7 @@ destination/
     scripts/env.sh
 ```
 
-## 19.3 Zig lean workspace
+## 20.3 Zig lean workspace
 
 ```text
 destination/
@@ -1983,7 +2090,7 @@ destination/
 
 ---
 
-# 20. Appendix B: command cheat sheet
+# 21. Appendix B: command cheat sheet
 
 ```bash
 # Discover the source workspace

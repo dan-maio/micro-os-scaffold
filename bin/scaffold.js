@@ -15,6 +15,8 @@ const { runVerification } = require('../lib/build');
 const { resolveSource } = require('../lib/source');
 const microTestPlus = require('../lib/micro-test-plus');
 const stdcpp = require('../lib/stdcpp');
+const v2 = require('../lib/v2/cli');
+const { isV2Source } = require('../lib/v2/discover');
 const { parseHierarchicalSelection, isDirectory, readJson, writeFile } = require('../lib/util');
 
 const PACKAGE = readJson(path.join(__dirname, '..', 'package.json'), {});
@@ -36,6 +38,12 @@ Subcommands:
   build [destination] [--clean]  run the verification builds recorded in scaffold.json
   clean [destination]            remove compiled build trees (tests/build, target, zig-out)
   scaffold [destination]         explicit form of the default action
+
+New source layout (micro-os-plus-iii/tests/platforms/, 2026-11): detected
+automatically; --select takes <platform> or <platform>.<test> (or the ids
+'discover' prints), --config a configuration of micro-os-plus-iii/tests/
+package.json; the workspace's entry point is ./run.sh at its root, and
+scripts/local-tests.txt keeps hand-made tests across re-scaffolds.
 
 Options:
   --source <dir|urls>   source workspace: a folder holding the sibling repositories,
@@ -296,6 +304,9 @@ async function commandDiscover(options) {
   const { root } = resolveSource(options.source ?? process.env.SCAFFOLD_SOURCE ?? process.cwd(), {
     branch: options.branch,
   });
+  // The restructured source (kernel + harness in micro-os-plus-iii/, ports by
+  // architecture): its own discovery.
+  if (isV2Source(root)) return v2.discoverCommandV2(root);
   const discovery = discover(root);
   printDiscoverList(discovery);
   return 0;
@@ -305,6 +316,7 @@ function commandList(options) {
   const destination = resolveDestination(options.destination);
   const config = loadConfig(destination);
   if (!config) throw new Error(`No scaffold.json in ${destination}; run the scaffolder first.`);
+  if (config.layout === 'v2') return v2.workspaceCommandV2(destination, 'list', config);
   console.log(`Architectures recorded in ${path.join(destination, 'scaffold.json')}:`);
   for (const project of config.projects) {
     const selected = project.role === 'kernel' || config.selectedProjects.includes(project.id);
@@ -343,6 +355,7 @@ function commandBuild(options) {
   const destination = resolveDestination(options.destination);
   const config = loadConfig(destination);
   if (!config) throw new Error(`No scaffold.json in ${destination}; run the scaffolder first.`);
+  if (config.layout === 'v2') return v2.workspaceCommandV2(destination, 'build', config);
   if (!isDirectory(path.join(destination, 'tests'))) {
     throw new Error(`The tests harness is missing from ${destination}; run the scaffolder again.`);
   }
@@ -365,6 +378,7 @@ function commandClean(options) {
   const destination = resolveDestination(options.destination);
   const config = loadConfig(destination);
   if (!config) throw new Error(`No scaffold.json in ${destination}; run the scaffolder first.`);
+  if (config.layout === 'v2') return v2.workspaceCommandV2(destination, 'clean', config);
   cleanLeanOutputs(config, destination);
   saveConfig(destination, config.lean ? slimConfig(config) : config);
   console.log(`Cleaned build outputs in ${destination}`);
@@ -388,6 +402,15 @@ async function commandScaffold(options) {
     previous?.mode ??
     (previous?.lean ? 'lean' : previous?.minimal === false ? 'full' : previous?.minimal ? 'minimal' : null);
   const mode = options.mode ?? previousMode ?? 'lean';
+  // The restructured source: a separate pipeline (lib/v2/), lean only.
+  if (isV2Source(source)) {
+    return v2.scaffoldCommandV2(options, {
+      source,
+      destination,
+      previous,
+      generator: { name: PACKAGE.name, version: PACKAGE.version, cli: path.resolve(process.argv[1]) },
+    });
+  }
   if (
     !isDirectory(path.join(source, 'micro-os-plus-iii')) &&
     !isDirectory(path.join(source, 'micro-os-plus-iii-smp')) &&

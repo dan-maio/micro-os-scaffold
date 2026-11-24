@@ -50,6 +50,99 @@ node bin/scaffold.js /path/to/output \
 The first positional argument is the destination folder, as specified. If it is omitted, the
 current folder is used.
 
+## The restructured source (`micro-os-plus-iii/tests/`)
+
+Since 2026-11-24 the source workspace (branch `align/smp-upstream`) has a new layout: one
+kernel repository holds the whole test harness, and the ports and device packages sit one
+folder deeper, by architecture:
+
+```text
+<source>/micro-os-plus-iii/                 kernel; tests/ is the harness
+  tests/platforms/<platform>/               a board: cmake/, include/, src/, openocd.cfg,
+                                            tests/ (its own tests + tests.cmake)
+  tests/sources/<test>/                     shared tests, named per platform in
+                                            UOS_TESTS_SOURCES / UOS_TESTS_SUITES
+  tests/board-tests/                        the one test builder (the hooks)
+  tests/cmake/uos-tests-run.cmake           CTest registration (qemu, hwd, host)
+  tests/package.json                        the xpm configurations (one per build)
+<source>/<arch>/micro-os-plus-iii-<arch>/   ports
+<source>/<dir>/micro-os-plus-iii-devices-*/ device packages
+```
+
+The scaffolder recognises it (`micro-os-plus-iii/tests/platforms/` and `board-tests/`) and
+uses a separate pipeline, `lib/v2/`. The old layout keeps the original pipeline.
+
+```bash
+node bin/scaffold.js discover --source /home/dan/Desktop/micro-os-plu-iii-smp-pr-github
+node bin/scaffold.js /path/to/output \
+  --source /home/dan/Desktop/micro-os-plu-iii-smp-pr-github \
+  --select cortexm-weactf411.spi-pipeline \
+  --micro-test-plus https://github.com/micro-os-plus/micro-test-plus-xpack.git \
+  --micro-test-plus-ref v6.0.0 --stdcpp --yes
+```
+
+| | New layout (`lib/v2/`) |
+| --- | --- |
+| Selection | `<platform>` (every test) or `<platform>.<test>`, or the ids `discover` prints (`13`, `13.2`); comma-separated |
+| Configurations | from `tests/package.json` (with its `inherit` chain): the platform's `-cmake-gcc-debug` by default, or `--config <name>` |
+| Workspace | mirrors the source: `micro-os-plus-iii/` complete (its `tests/` pruned), the port and device packages the platform names, `third_party/` for the options |
+| Pruning | `tests/platforms/` keeps the selected platforms; a platform keeps its selected own tests; its `UOS_TESTS_*` lists and `cmake/dependencies-folders.cmake` keep the selected shared tests; `tests/sources/` keeps what is still named; build-helper keeps the toolchain files in use; git-ignored folders (`.kilo/`, build trees, caches) and the tool links are not copied |
+| Entry point | `./run.sh` at the workspace root (`build`, `test`, `list`, `all`, `clean`; `--hwd`, `--hwd-only`, `-R`, `-c`). It links the workspace's package copies into `micro-os-plus-iii/tests/build/<C>/xpacks/@micro-os-plus/` (relative links), the per-configuration libraries (`@xpacks/arm-cmsis`) and the pinned tools (`xpacks/.bin`), then runs the configuration's own `cmake -S . -B build/<C> ... -D PLATFORM_NAME=<p> -D CMAKE_TOOLCHAIN_FILE=...`. It never runs `xpm link` |
+| Tool paths | `scripts/env.sh` (generated), the tool folders pinned by the configuration's `devDependencies` in the xPack store |
+| Results | `build/<C>/ctest.xml`, `ctest.log`; a µTest++ test's TAP report in `build/<C>/mtp-reports/<ctest name>.tap` |
+| `--micro-test-plus` | the board support in `micro-os-plus-iii/tests/mtp/`, the tests in `tests/platforms/<p>/tests/mtp-*/`, the CMake block in that `tests.cmake`; the command line (`argv[0]`, `--output-file`) through the registration helpers in `tests/cmake/uos-tests-run.cmake` (marked `SCAFFOLD µTest++`), and for a Cortex-M platform's inline QEMU `add_test` |
+| `--stdcpp` | `third_party/stateos-stdc++/`, wired in each platform's `tests/tests.cmake`; `mtp-stdcpp` where µTest++ is |
+| Local tests | `scripts/local-tests.txt` and `tests.local.cmake` (below) |
+
+Verified (2026-11-24) with the six workspaces of `micro-os-scaffold-ctest-examples`: all
+build; every QEMU case passes (Pi 4 B 7/7 with `mtp-eth-net` skipped under QEMU as designed,
+Zero 2 W AArch64 4/4, AArch32 5/5, Pico 2 `smp-stdcpp-test` 1/1); the µTest++ TAP reports and
+`argv` arrive. Hardware runs of the re-scaffolded workspaces are pending.
+
+## Local tests (`scripts/local-tests.txt`)
+
+A test added by hand to a workspace survives a re-scaffold when it is listed in
+`scripts/local-tests.txt` (new layout; `tests/scripts/local-tests.txt` in the specification
+for the old one). The scaffolder never writes that file:
+
+```text
+# Tests added by hand to this workspace.
+spi-stdcpp-test                 # micro-os-plus-iii/tests/platforms/<p>/tests/spi-stdcpp-test/
+cortexm-pico2/my-test           # one platform only
+keep third_party/my-lib         # any other file or folder, kept as it is
+```
+
+- Before it copies anything, the scaffolder sets aside the listed test folders, every
+  `tests/platforms/<p>/tests/tests.local.cmake`, and the `keep` paths; it puts them back
+  (the local copy wins) after the copy, the pruning and the options, even when the run
+  fails. A stash left by an interrupted run is restored first.
+- `./run.sh` runs the listed tests by default; `./run.sh list` marks them `L` (the
+  scaffolded selection `*`).
+- `tests.local.cmake` holds their CMake wiring. Every hook of the builder
+  (`board_test_libs`, `_defines`, `_sources`, `_includes`, `_linker`, `_options`, `_ncpu`,
+  `_qemu_libs`, `_qemu_sources`, `_qemu_includes`, `_sd_posix`, `board_test_libraries`) first
+  asks its twin `<hook>_local (_app _out)`, when the file defines one; a twin that sets
+  `${_out}` answers for that test. The file may also append to the lists
+  (`BOARD_TEST_HWD_ONLY`, ...).
+
+  ```cmake
+  function (board_test_libs_local _app _out)
+    if (_app STREQUAL "spi-stdcpp-test")
+      set (${_out} stateos-stdc++ uos-micro-test-plus PARENT_SCOPE)
+    endif ()
+  endfunction ()
+  ```
+- A local test named like a shared test of its platform (`smp_test4`) replaces it: the name
+  leaves the platform's `UOS_TESTS_*` lists.
+- Rejected: a `keep` path outside the workspace or on a generated path (`run.sh`,
+  `scripts/env.sh`, `scaffold.json`, `README.md`, `build-logs/`, `micro-os-plus-iii/tests/mtp/`,
+  `micro-os-plus-iii/tests/build/`, `third_party/micro-test-plus/`,
+  `third_party/stateos-stdc++/`), a starter name (`mtp-example`, `mtp-args`, `mtp-smp`,
+  `mtp-eth-net`, `mtp-stdcpp`), a malformed line. A `keep` path inside the kernel or a
+  package is allowed, with a warning on every run (source updates of it are not applied).
+- `scaffold.json` records them under `localTests` (informational; the list is the source of
+  truth).
+
 ## What a generated workspace gives you
 
 Four things are the same for every CMake workspace, in every mode:
@@ -904,7 +997,8 @@ project is deselected it is left on disk but is no longer listed in
   is run so the selection is not silently ignored.
 - Lean workspaces do not contain build outputs; `tests/run.sh` builds before it runs.
 - Re-running the scaffolder on a workspace removes test directories that are not selected,
-  including ones added locally. Copy new work to the source repository first.
+  unless `scripts/local-tests.txt` lists them (new layout, see "Local tests"). In an old-layout
+  workspace, copy new work to the source repository first.
 - µTest++ was run on the Zero 2 W (AArch64 and AArch32), the Pi 4 B, the Pico 2, the
   NUCLEO-F411 and the WeAct F411CE; other boards are integrated by the same rules but not yet
   run on hardware.

@@ -68,6 +68,20 @@ static constructors, and its linker script defines a heap that `malloc`, `new` a
 `sbrk` use. The scaffolder checks this in the sources and `mtp-example` checks it again
 on the target.
 
+**In a workspace scaffolded from the restructured source** (`micro-os-plus-iii/tests/`,
+since 2026-11-24) the same files have other paths, and the entry point moved to the
+workspace root:
+
+| In this guide | New layout |
+| --- | --- |
+| `<port>/test/mtp/` | `micro-os-plus-iii/tests/mtp/` |
+| `<port>/test/<board>/tests.cmake`, `.../mtp-*/` | `micro-os-plus-iii/tests/platforms/<platform>/tests/tests.cmake`, `.../tests/mtp-*/` |
+| `cd tests && ./run.sh` | `./run.sh` (workspace root) |
+| `tests/build/<C>/.../.qemu-logs/<test>.tap`, `.hw-logs/<test>.tap` | `micro-os-plus-iii/tests/build/<C>/mtp-reports/<platform>-<test>-qemu.tap` (`-hwd.tap`) |
+| the runner scripts pass the command line | the registration helpers in `micro-os-plus-iii/tests/cmake/uos-tests-run.cmake` do (marked `SCAFFOLD µTest++`) |
+
+Everything else in this guide (the API, the suites, the rules) is the same.
+
 ---
 
 ## 3. Your first test, step by step
@@ -521,9 +535,31 @@ endfunction ()
 plus the starter tests. A test you add by hand is built and listed, and runs when you
 name it (`./run.sh mtp-mytest`).
 
-A **re-scaffold** rebuilds the port from the source repository and removes test
-directories it does not know. Keep your tests in the source repository (then select
-them when scaffolding), or in version control next to the workspace.
+A **re-scaffold** rebuilds the workspace from the source repository and removes test
+folders it does not know, unless they are **local tests** (new layout):
+
+1. list the folder name in `scripts/local-tests.txt` at the workspace root (one name per
+   line; `#` starts a comment; `keep <path>` keeps any other file or folder);
+2. put its CMake wiring in `micro-os-plus-iii/tests/platforms/<platform>/tests/tests.local.cmake`,
+   next to `tests.cmake`, as `*_local` twins of the hooks:
+
+   ```cmake
+   function (board_test_libs_local _app _out)
+     if (_app STREQUAL "my-test")
+       set (${_out} uos-micro-test-plus PARENT_SCOPE)
+     endif ()
+   endfunction ()
+   ```
+
+   A name starting with `mtp-` gets µTest++ without this; a local test needs the file only
+   for what the generated hooks do not give it.
+
+`./run.sh` then runs the test by default, `./run.sh list` marks it `L`, and a re-scaffold
+keeps the folder, `tests.local.cmake` and the list byte for byte. Tests meant to last
+belong in the source repository (then select them when scaffolding).
+
+In an old-layout workspace there are no local tests: keep your tests in the source
+repository, or in version control next to the workspace.
 
 ---
 

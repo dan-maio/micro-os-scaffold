@@ -76,6 +76,15 @@ What the workspace gets:
 | `<port>/test/<board>/tests.cmake` | a `stateos-stdc++` block that makes the library available, and a hook branch for `mtp-stdcpp` |
 | `<port>/test/<board>/mtp-stdcpp/` | the test: six suites that exercise every part (with `--micro-test-plus`) |
 
+**In a workspace scaffolded from the restructured source** (`micro-os-plus-iii/tests/`,
+since 2026-11-24): the package is still `third_party/stateos-stdc++/`; the block and the
+test are in `micro-os-plus-iii/tests/platforms/<platform>/tests/` (`tests.cmake`,
+`mtp-stdcpp/`); run with `./run.sh mtp-stdcpp` from the workspace root. To link the package
+to a test you add by hand there, keep the branch out of the generated `tests.cmake`: list
+the test in `scripts/local-tests.txt` and put the branch in `tests.local.cmake` next to
+`tests.cmake`, as `board_test_libs_local` (the README_API_CTEST guide, chapter 10). A
+re-scaffold then keeps both.
+
 ---
 
 ## 3. Using it in your own test
