@@ -999,7 +999,12 @@ node bin/scaffold.js /path/to/destination \
   --select cortexm-pico2.smp-mat-test-ram --yes
 ```
 
-A single URL may also be one repository that contains every project. The
+A single URL may also be one repository that contains every project, such as
+`https://github.com/dan-maio/micro-os-plus-iii-smp2.git`. Its submodules (the
+four ports of `micro-os-plus-iii-smp2`) are cloned with it, shallowly, at the
+commits it pins, and updated with it on later runs. A local source folder
+must have its submodules checked out (`git clone --recursive`); an empty
+submodule folder stops the scaffolder with the command that fixes it. The
 numeric selection ids depend on which repositories are present, so with a
 partial clone prefer names (`cortexm-pico2.smp-mat-test-ram`) or run
 `discover` with the same `--source` first. A later run updates the cached
@@ -1890,6 +1895,15 @@ on every run. The new-layout discovery finds packages both beside the kernel (a 
 one folder deeper (`<arch>/micro-os-plus-iii-<arch>/`, the source workspace). The workspace
 mirrors whichever layout the source has.
 
+A source repository may hold packages as submodules (`micro-os-plus-iii-smp2`: the four
+ports). `cloneOrUpdate ()` clones with `--recurse-submodules --shallow-submodules`;
+`updateSubmodules ()` runs `git submodule update --init --recursive --depth 1` after a
+cached clone is fetched, so the ports follow the commits the repository pins. For a local
+`--source` folder, `missingSubmodules ()` lists the `.gitmodules` paths whose folders are
+empty (a clone without `--recursive`), and the scaffolder stops with the `git submodule
+update` command. The copy skips a submodule's `.git` file like a `.git` folder, and
+`gitInfo ()` reports the submodule's own commit.
+
 A clone has no `micro-os-plus-iii/tests/xpacks/`: the folder is git-ignored and filled by
 `xpm install`. `materializeTestXpacks ()` copies each package `tests/package.json` declares
 (build-helper, chan-fatfs, the CMSIS RTOS validator) from the xPack store, at the declared
@@ -1903,6 +1917,16 @@ Checked (2026-11-24):
   `align/smp-upstream`;
 - the three tests xpacks copied from the store, the build passed, and the QEMU case passed;
 - a re-scaffold without options fetched the four repositories again.
+
+Checked (2026-11-26), with `micro-os-plus-iii-smp2` holding the ports as submodules
+(`be5c50da`), selection `aarch64-rpi-zero-2w.smp-mat-test` with µTest++:
+- the GitHub URL, fresh cache: cloned with the four submodules at their pinned commits;
+  build passed; the 4 QEMU cases passed;
+- the GitHub URL, with an older cached clone made without submodules: updated, the
+  submodules filled in, build passed;
+- the local folder `/home/dan/Work/micro-os-plus-iii-smp2`: build passed;
+- a local clone without `--recursive`: stopped with the list of empty submodules and the
+  `git submodule update --init --recursive` command; nothing written.
 
 ## 14.6 Adding code, configuring, building and running
 

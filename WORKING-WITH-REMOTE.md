@@ -12,7 +12,7 @@ commands are written out.*
 |---|---|---|
 | `micro-os-scaffold` (this one): the scaffolder, its templates and guides | `dan-maio/micro-os-scaffold` | `/home/dan/Downloads/GIT/micro-os-scaffold.git` |
 | `micro-os-scaffold-ctest-examples`: the example workspaces it produced | `dan-maio/micro-os-scaffold-ctest-examples` | `/home/dan/Downloads/GIT/micro-os-scaffold-ctest-examples.git` |
-| `micro-os-plus-iii-smp2`: the µOS++ III SMP source the scaffolder reads (one repository) | `dan-maio/micro-os-plus-iii-smp2` | none (see its `WORKING-WITH-REMOTE.md`) |
+| `micro-os-plus-iii-smp2`: the µOS++ III SMP source the scaffolder reads (one repository; the four ports are submodules) | `dan-maio/micro-os-plus-iii-smp2` | none (see its `WORKING-WITH-REMOTE.md`) |
 
 All three are public on GitHub, branch `main`.
 
@@ -67,13 +67,25 @@ node bin/scaffold.js --help
 
 Node.js 18 or newer is all the scaffolder itself needs (no npm packages).
 To scaffold, it needs a µOS++ source: a folder, or git URLs. The current
-source is one clone of `micro-os-plus-iii-smp2`:
+source is `micro-os-plus-iii-smp2`. It holds the four ports as git submodules,
+so clone it with `--recursive`:
 
 ```bash
-git clone https://github.com/dan-maio/micro-os-plus-iii-smp2.git ../micro-os-plus-iii-smp2
+git clone --recursive https://github.com/dan-maio/micro-os-plus-iii-smp2.git ../micro-os-plus-iii-smp2
 node bin/scaffold.js discover --source ../micro-os-plus-iii-smp2
 node bin/scaffold.js /path/to/workspace \
   --source ../micro-os-plus-iii-smp2 \
+  --select aarch64-rpi4b.smp_test0 --yes
+```
+
+In a clone made without `--recursive`, run
+`git -C ../micro-os-plus-iii-smp2 submodule update --init --recursive`; the
+scaffolder refuses a source whose submodule folders are empty. Or give the
+URL itself, and the scaffolder clones it, submodules included, into its cache:
+
+```bash
+node bin/scaffold.js /path/to/workspace \
+  --source https://github.com/dan-maio/micro-os-plus-iii-smp2.git \
   --select aarch64-rpi4b.smp_test0 --yes
 ```
 
@@ -202,6 +214,8 @@ git fetch origin && git branch -u origin/main
 | `! [rejected] … (non-fast-forward)` | GitHub has commits you do not | `git pull --ff-only`, or rebase/merge, then push |
 | `git push` goes to the backup | an old clone where `origin` is still the backup | rename the remotes (section 8) |
 | a PDF is older than its Markdown | not rendered again | the commands in section 5.1 |
+| `submodules not checked out: aarch32/…` | the `micro-os-plus-iii-smp2` clone was made without `--recursive` | `git -C <source> submodule update --init --recursive` (section 4) |
+| CMake: port folder not found, in a workspace scaffolded from an `smp2` URL with an old scaffolder | that version cloned without submodules | update `micro-os-scaffold`, scaffold again (the cached clone gets its submodules) |
 
 ---
 

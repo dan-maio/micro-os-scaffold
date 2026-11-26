@@ -176,6 +176,22 @@ run `xpm install` once in any checkout of `micro-os-plus-iii/tests`.
 `scaffold.json` records the URLs and the branch. A re-scaffold without `--source` fetches
 them again, and the workspace README's "Regenerate" command repeats them.
 
+**Submodules.** `micro-os-plus-iii-smp2` holds the four ports (`aarch32/`, `aarch64/`,
+`cortexm/`, `posix-arch/`) as git submodules, each pinned to a commit of the port's own
+repository (branch `smp`). Given as a single URL, it is cloned with
+`--recurse-submodules --shallow-submodules`, and a cached clone is brought to the pinned
+commits (`git submodule update --init`) on every run:
+
+```bash
+node bin/scaffold.js /path/to/workspace \
+  --source https://github.com/dan-maio/micro-os-plus-iii-smp2.git \
+  --select aarch64-rpi-zero-2w.smp-mat-test --yes
+```
+
+A local source folder must have its submodules checked out (`git clone --recursive`, or
+`git submodule update --init --recursive` in an existing clone); an empty submodule folder
+stops the scaffolder with that command, before anything is written.
+
 ## Local tests (`scripts/local-tests.txt`)
 
 A test added by hand to a workspace survives a re-scaffold when it is listed in
