@@ -567,7 +567,9 @@ repository, or in version control next to the workspace.
 
 - The framework's own documentation: <https://micro-os-plus.github.io/micro-test-plus-xpack/>
 - The generated `<port>/test/mtp/README.md`: the defines of this port's board support.
-- `tests/ARCHITECTURE.md` in a workspace: how the harness, the runners and CTest fit together.
+- `tests/ARCHITECTURE.md` in a workspace of the old layout: how the harness, the runners and
+  CTest fit together. A workspace of the current layout has no such file; its `README.md`
+  describes the layout, and `micro-os-plus-iii/tests/cmake/` holds the harness.
 - `scaffold.md`, chapter 13: how the scaffolder integrates µTest++, and the results measured on the boards.
 - Worked examples in the scaffolder: `templates/micro-test-plus/` (the starter tests),
   `examples/cortexm-weactf411-mtp-spi-flash/` (a test of one board's own hardware).

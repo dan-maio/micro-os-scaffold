@@ -134,6 +134,13 @@ td {
   vertical-align: top;
 }
 
+/* Long unbreakable tokens (flags, paths) in a narrow column would run past
+   the page edge and be clipped: let them break anywhere. */
+td, th, td code, th code {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 tbody tr:nth-child(even) td {
   background: #f4f7fa;
 }
