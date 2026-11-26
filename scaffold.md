@@ -1904,6 +1904,11 @@ empty (a clone without `--recursive`), and the scaffolder stops with the `git su
 update` command. The copy skips a submodule's `.git` file like a `.git` folder, and
 `gitInfo ()` reports the submodule's own commit.
 
+`micro-os-plus-iii-smp2` ignores `micro-os-plus-iii/tests/xpacks/` (there it holds links into
+the xPack store). In a workspace that folder holds copies of the packages, which the
+workspace's repository must commit, so `keepTestXpacksTracked ()` drops the `xpacks/` line
+from the copied `tests/.gitignore` (and the file, when nothing else is left).
+
 A clone has no `micro-os-plus-iii/tests/xpacks/`: the folder is git-ignored and filled by
 `xpm install`. `materializeTestXpacks ()` copies each package `tests/package.json` declares
 (build-helper, chan-fatfs, the CMSIS RTOS validator) from the xPack store, at the declared
